@@ -4,6 +4,14 @@
 
 `fleet` is a client of the platform's Admin API and nothing else. It holds no database or cloud credentials, and it has no dependencies outside the Go standard library.
 
+## Install
+
+```bash
+go install github.com/octogee-ai/fleet@latest
+```
+
+Or download the archive for your system from [Releases](https://github.com/octogee-ai/fleet/releases), check it against `checksums.txt`, and put the `fleet` binary inside it on your `PATH`. Releases cover macOS and Linux on amd64 and arm64.
+
 ## Build
 
 ```bash
