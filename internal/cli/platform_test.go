@@ -14,6 +14,24 @@ func TestOpsListFiltersByStatusAndLimit(t *testing.T) {
 	expectContains(t, run.stdout, "op-1")
 }
 
+func TestOpsInspectShowsStepsAndFailureReason(t *testing.T) {
+	run := fleet(t, "ops", "inspect", "op-1")
+	expectRead(t, run)
+	if !run.containsRequest(adminRequest{Method: http.MethodGet, Path: "/api/admin/operations/op-1"}) {
+		t.Fatalf("requests %+v", run.requests)
+	}
+	expectContains(t, run.stdout, "quiesce-source")
+	expectContains(t, run.stdout, "source drain timed out")
+}
+
+func TestOpsInspectReportsAnUnknownOperation(t *testing.T) {
+	run := fleet(t, "ops", "inspect", "op-missing")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure, got: %s", run.stdout)
+	}
+	expectContains(t, run.stderr, "404")
+}
+
 func TestBuildsListFiltersByServiceAndLimit(t *testing.T) {
 	run := fleet(t, "builds", "ls", "--service=gateway", "--limit=5")
 	expectRead(t, run)

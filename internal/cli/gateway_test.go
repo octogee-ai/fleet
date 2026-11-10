@@ -154,6 +154,13 @@ func TestGatewayInspectIsReadOnly(t *testing.T) {
 	expectContains(t, run.stdout, "iso-grace")
 }
 
+func TestGatewayInspectShowsPodsAndLastError(t *testing.T) {
+	run := fleet(t, "gateway", "inspect", "iso-grace")
+	expectRead(t, run)
+	expectContains(t, run.stdout, "pod-iso-grace")
+	expectContains(t, run.stdout, "ensure failed on iso-grace")
+}
+
 func TestGatewayReleasesIsReadOnly(t *testing.T) {
 	expectRead(t, fleet(t, "gateway", "releases", "shared-a"))
 }

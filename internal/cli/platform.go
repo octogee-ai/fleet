@@ -14,6 +14,7 @@ import (
 
 var platformCommands = []*command{
 	{path: words("ops ls"), usage: "[--status=<status>] [--limit=<n>]", summary: "List operations from the journal.", flags: flagSet{"status": valueFlag, "limit": valueFlag}, run: opsList},
+	{path: words("ops inspect"), usage: "<operation>", argc: 1, summary: "Show one operation's steps and outcome.", run: opsInspect},
 	{path: words("builds ls"), usage: "[--service=<service>] [--limit=<n>]", summary: "List builds.", flags: flagSet{"service": valueFlag, "limit": valueFlag}, run: buildsList},
 	{path: words("release status"), summary: "Show release convergence across the fleet.", run: releaseStatus},
 	{path: words("pool show"), summary: "Show the shared-gateway placement pool.", run: poolShow},
@@ -70,6 +71,16 @@ func buildsList(i *invocation) error {
 		return err
 	}
 	return i.printJSON(response["builds"])
+}
+
+func opsInspect(i *invocation) error {
+	var response struct {
+		Operation map[string]any `json:"operation"`
+	}
+	if err := i.admin.Get(i.ctx, admin.Path("operations", i.args[0]), nil, &response); err != nil {
+		return err
+	}
+	return i.printJSON(response.Operation)
 }
 
 func releaseStatus(i *invocation) error {

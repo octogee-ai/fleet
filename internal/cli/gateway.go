@@ -46,7 +46,7 @@ func gatewayList(i *invocation) error {
 
 func gatewayInspect(i *invocation) error {
 	id := i.args[0]
-	gateway, err := i.gateway(id)
+	gateway, err := i.gatewayRecord(id)
 	if err != nil {
 		return err
 	}

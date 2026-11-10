@@ -84,6 +84,7 @@ These talk to the environment's OIDC issuer, not the Admin API.
 | Command | What it does | Request |
 | --- | --- | --- |
 | `ops ls [--status=] [--limit=]` | Lists operations from the journal | `GET /operations` |
+| `ops inspect <operation>` | Shows one operation's steps and failure reason | `GET /operations/<operation>` |
 | `builds ls [--service=] [--limit=]` | Lists builds | `GET /builds` |
 | `release status` | Shows release convergence across the fleet | `GET /release-status` |
 | `pool show` | Shows the shared-gateway placement pool | `GET /placement` |

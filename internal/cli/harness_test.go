@@ -208,6 +208,13 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.placement())
 	case path == "operations":
 		writeJSON(w, http.StatusOK, map[string]any{"operations": []map[string]any{{"id": "op-1", "kind": "deploy", "status": "running"}}})
+	case path == "operations/op-1":
+		writeJSON(w, http.StatusOK, map[string]any{"operation": map[string]any{
+			"id":     "op-1",
+			"kind":   "migrate-customer",
+			"status": "failed",
+			"steps":  []map[string]any{{"name": "quiesce-source", "status": "failed", "error": "source drain timed out"}},
+		}})
 	case path == "builds":
 		writeJSON(w, http.StatusOK, map[string]any{"builds": []map[string]any{{"tag": "v42"}}})
 	case path == "release-status":
@@ -236,6 +243,10 @@ func (s *adminStub) gatewaySummaries() []map[string]any {
 			"imageTag":      "v42",
 			"mountedUsers":  gateway.mounted,
 			"ownerId":       gateway.owner,
+			"lastError":     map[string]any{"message": "ensure failed on " + gateway.id},
+			"podDiagnostics": map[string]any{
+				"pods": []map[string]any{{"name": "pod-" + gateway.id, "ready": true}},
+			},
 		})
 	}
 	return summaries

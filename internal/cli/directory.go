@@ -92,6 +92,21 @@ func (i *invocation) gateway(id string) (gatewaySummary, error) {
 	return findGateway(gateways, id)
 }
 
+func (i *invocation) gatewayRecord(id string) (map[string]any, error) {
+	var response struct {
+		Gateways []map[string]any `json:"gateways"`
+	}
+	if err := i.admin.Get(i.ctx, admin.Path("gateways"), nil, &response); err != nil {
+		return nil, err
+	}
+	for _, gateway := range response.Gateways {
+		if gateway["gatewayId"] == id {
+			return gateway, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown gateway %q", id)
+}
+
 func (i *invocation) placement() (placement, error) {
 	var response placement
 	err := i.admin.Get(i.ctx, admin.Path("placement"), nil, &response)
