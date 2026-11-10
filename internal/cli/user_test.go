@@ -1,0 +1,209 @@
+package cli
+
+import (
+	"net/http"
+	"reflect"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+func TestUserMutations(t *testing.T) {
+	const prefix = "/api/admin/users/"
+	cases := []struct {
+		argv []string
+		want adminRequest
+	}{
+		{[]string{"user", "assign", "alan", "--to=shared-a"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-alan/assign", Body: map[string]any{"gatewayId": "shared-a"}}},
+		{[]string{"user", "migrate", "ada", "--to=shared-b"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-ada/migrate", Body: map[string]any{"to": "shared-b"}}},
+		{[]string{"user", "migrate", "ada", "--to=shared-b", "--source-transfer=retained-pod"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-ada/migrate", Body: map[string]any{"to": "shared-b", "sourceTransfer": "retained-pod"}}},
+		{[]string{"user", "unassign", "ada"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-ada/unassign"}},
+		{[]string{"user", "replace-vm", "grace"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/vm/replace", Body: map[string]any{}}},
+		{[]string{"user", "delete", "alan"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-alan/delete", Body: map[string]any{"eraseNow": false}}},
+		{[]string{"user", "delete", "alan", "--erase-now"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-alan/delete", Body: map[string]any{"eraseNow": true}}},
+		{[]string{"user", "lease", "request", "grace"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease"}},
+		{[]string{"user", "lease", "cancel", "grace", "--lease=lease-1", "--generation=3"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease/cancel", Body: map[string]any{"leaseId": "lease-1", "generation": float64(3)}}},
+		{[]string{"user", "lease", "terminate", "grace", "--lease=lease-1", "--generation=3"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease/terminate", Body: map[string]any{"leaseId": "lease-1", "generation": float64(3)}}},
+		{[]string{"user", "lease", "return", "grace", "--lease=lease-1", "--generation=3"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease/return", Body: map[string]any{"leaseId": "lease-1", "generation": float64(3)}}},
+		{[]string{"user", "lease", "retry-return", "grace", "--operation=op-9"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease/return/retry", Body: map[string]any{"operationId": "op-9"}}},
+	}
+	for _, testCase := range cases {
+		t.Run(strings.Join(testCase.argv, " "), func(t *testing.T) {
+			expectApplied(t, fleet(t, append(append([]string{}, testCase.argv...), "--apply")...), testCase.want)
+		})
+	}
+}
+
+func TestUserIsNamedByNameOrID(t *testing.T) {
+	byName := fleet(t, "user", "unassign", "ada", "--apply").onlyMutation(t)
+	byID := fleet(t, "user", "unassign", "u-ada", "--apply").onlyMutation(t)
+	if !reflect.DeepEqual(byName, byID) {
+		t.Fatalf("by name %+v, by id %+v", byName, byID)
+	}
+}
+
+func TestUserAssignDoesNothingWhenAlreadyOnTheTarget(t *testing.T) {
+	expectRead(t, fleet(t, "user", "assign", "ada", "--to=shared-a", "--apply"))
+}
+
+func TestUserAssignPointsAPlacedUserAtMigrate(t *testing.T) {
+	run := fleet(t, "user", "assign", "ada", "--to=shared-b", "--apply")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "user migrate")
+}
+
+func TestUserAssignRefusesAParkedGateway(t *testing.T) {
+	expectRefused(t, fleet(t, "user", "assign", "alan", "--to=shared-parked", "--apply"))
+}
+
+func TestUserAssignRefusesAnotherUsersIsolatedGateway(t *testing.T) {
+	expectRefused(t, fleet(t, "user", "assign", "alan", "--to=iso-grace", "--apply"))
+}
+
+func TestUserMigratePointsAnUnplacedUserAtAssign(t *testing.T) {
+	run := fleet(t, "user", "migrate", "alan", "--to=shared-a", "--apply")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "user assign")
+}
+
+func TestUserMigrateRefusesAnUnknownSourceTransferMode(t *testing.T) {
+	expectRefused(t, fleet(t, "user", "migrate", "ada", "--to=shared-b", "--source-transfer=copy", "--apply"))
+}
+
+func TestUserMigrateDoesNothingWhenAlreadyOnTheTarget(t *testing.T) {
+	expectRead(t, fleet(t, "user", "migrate", "ada", "--to=shared-a", "--apply"))
+}
+
+func TestUserReplaceVMRequiresBothBreakGlassFlags(t *testing.T) {
+	expectRefused(t, fleet(t, "user", "replace-vm", "grace", "--accept-boot-data-loss", "--apply"))
+
+	full := fleet(t, "user", "replace-vm", "grace", "--force", "--accept-boot-data-loss", "--apply")
+	if body := full.onlyMutation(t).Body; !reflect.DeepEqual(body, map[string]any{"force": true, "acceptBootDataLoss": true}) {
+		t.Fatalf("body %+v", body)
+	}
+}
+
+func TestUserLeaseRequiresALeaseIDAndAnIntegerGeneration(t *testing.T) {
+	for _, argv := range [][]string{
+		{"user", "lease", "cancel", "grace", "--generation=3"},
+		{"user", "lease", "terminate", "grace", "--lease=lease-1"},
+		{"user", "lease", "return", "grace", "--lease=lease-1", "--generation=three"},
+	} {
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			expectRefused(t, fleet(t, append(argv, "--apply")...))
+		})
+	}
+}
+
+func TestUserListFiltersByGateway(t *testing.T) {
+	run := fleet(t, "user", "ls", "--gateway=shared-a")
+	expectRead(t, run)
+	expectContains(t, run.stdout, "ada")
+	if strings.Contains(run.stdout, "grace") {
+		t.Fatalf("grace is not on shared-a:\n%s", run.stdout)
+	}
+}
+
+func TestUserListRefusesAnUnknownGatewayFilter(t *testing.T) {
+	expectRefused(t, fleet(t, "user", "ls", "--gateway=nowhere"))
+}
+
+var driftWord = regexp.MustCompile(`(?i)drift`)
+
+func TestUserListIsSilentAboutDriftWhenPlacementMatches(t *testing.T) {
+	run := fleet(t, "user", "ls")
+	expectRead(t, run)
+	if driftWord.MatchString(run.stdout) {
+		t.Fatalf("expected no drift report:\n%s", run.stdout)
+	}
+}
+
+func TestUserListReportsDriftInBothDirections(t *testing.T) {
+	drifted := fixture
+	drifted.gateways = append([]fixtureGateway{}, fixture.gateways...)
+	for index, gateway := range drifted.gateways {
+		switch gateway.id {
+		case "shared-a":
+			drifted.gateways[index].mounted = []string{"u-ada", "u-alan"}
+		case "iso-grace":
+			drifted.gateways[index].mounted = nil
+		}
+	}
+	run := fleetWith(t, drifted, runOptions{}, "user", "ls")
+	expectRead(t, run)
+	var driftLines []string
+	for _, line := range strings.Split(run.stdout, "\n") {
+		if driftWord.MatchString(line) {
+			driftLines = append(driftLines, line)
+		}
+	}
+	report := strings.Join(driftLines, "\n")
+	expectContains(t, report, "alan")
+	expectContains(t, report, "grace")
+	if len(driftLines) != 2 {
+		t.Fatalf("expected one line per drifted user:\n%s", report)
+	}
+}
+
+func TestUserInspectIsReadOnly(t *testing.T) {
+	run := fleet(t, "user", "inspect", "grace")
+	expectRead(t, run)
+	expectContains(t, run.stdout, "iso-grace")
+}
+
+func TestUserBrokerIsReadOnly(t *testing.T) {
+	run := fleet(t, "user", "broker", "ada")
+	expectRead(t, run)
+	if !run.containsRequest(adminRequest{Method: http.MethodGet, Path: "/api/admin/users/u-ada/broker-diagnostics"}) {
+		t.Fatalf("requests %+v", run.requests)
+	}
+}
+
+func TestUserAddCreatesTheUserThroughOneRequest(t *testing.T) {
+	run := fleet(t, "user", "add", "lin", "--email=lin@example.com", "--apply")
+	expectApplied(t, run, adminRequest{Method: http.MethodPost, Path: "/api/admin/users", Body: map[string]any{"name": "lin", "email": "lin@example.com"}})
+	expectContains(t, run.stdout, "op-recorded")
+	expectContains(t, run.stdout, "fleet user issue-passwords lin --apply")
+}
+
+func TestUserAddRequiresAnEmail(t *testing.T) {
+	expectNothingSent(t, fleet(t, "user", "add", "lin", "--apply"))
+}
+
+func TestUserAddRefusesATakenName(t *testing.T) {
+	expectRefused(t, fleet(t, "user", "add", "ada", "--email=ada@example.com", "--apply"))
+}
+
+func TestIssuePasswordsPrintsBothOnce(t *testing.T) {
+	run := fleet(t, "user", "issue-passwords", "ada", "--apply")
+	expectApplied(t, run, adminRequest{Method: http.MethodPost, Path: "/api/admin/users/u-ada/one-time-passwords"})
+	expectContains(t, run.stdout, "operation op-passwords")
+	for _, secret := range []string{"chat-secret", "git-secret"} {
+		if got := strings.Count(run.stdout, secret); got != 1 {
+			t.Fatalf("%s appeared %d times in:\n%s", secret, got, run.stdout)
+		}
+	}
+	expectContains(t, run.stdout, "ws-ada")
+}
+
+func TestIssuePasswordsDryRunShowsNoPasswords(t *testing.T) {
+	run := fleet(t, "user", "issue-passwords", "ada")
+	expectRead(t, run)
+	if strings.Contains(run.stdout, "secret") {
+		t.Fatalf("dry run showed a password:\n%s", run.stdout)
+	}
+}
+
+func TestIssuePasswordsRefusesAUserStillProvisioning(t *testing.T) {
+	custom := fixture
+	custom.users = []fixtureUser{{id: "u-new", name: "new", provisioning: "in_progress"}}
+	expectRefused(t, fleetWith(t, custom, runOptions{}, "user", "issue-passwords", "new", "--apply"))
+}
+
+func TestIssuePasswordsFailsWithoutPrintingAnUnreadableReply(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{omitPasswords: true}, "user", "issue-passwords", "ada", "--apply")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure, got:\n%s", run.stdout)
+	}
+	expectContains(t, run.stderr, "run this command again")
+}
