@@ -101,37 +101,6 @@ func TestGatewayRestartHasNoForceMode(t *testing.T) {
 	expectRefused(t, fleet(t, "gateway", "restart", "iso-grace", "--resolve-force=audit-1", "--apply"))
 }
 
-func bulkMove(userIDs ...any) adminRequest {
-	return adminRequest{Method: http.MethodPost, Path: "/api/admin/gateway-migrations/bulk", Body: map[string]any{"sourceGatewayId": "shared-a", "toGatewayId": "shared-b", "userIds": userIDs}}
-}
-
-func TestGatewayMoveUsersMovesEveryUserOnTheSource(t *testing.T) {
-	expectApplied(t, fleet(t, "gateway", "move-users", "shared-a", "--to=shared-b", "--apply"), bulkMove("u-ada"))
-}
-
-func TestGatewayMoveUsersMovesTheListedUsers(t *testing.T) {
-	expectApplied(t, fleet(t, "gateway", "move-users", "shared-a", "--to=shared-b", "--users=ada", "--apply"), bulkMove("u-ada"))
-}
-
-func TestGatewayMoveUsersRefusals(t *testing.T) {
-	cases := map[string][]string{
-		"a listed user on another gateway": {"gateway", "move-users", "shared-a", "--to=shared-b", "--users=grace", "--apply"},
-		"a listed user who does not exist": {"gateway", "move-users", "shared-a", "--to=shared-b", "--users=nobody", "--apply"},
-		"a parked target":                  {"gateway", "move-users", "shared-a", "--to=shared-parked", "--apply"},
-		"a target that is the source":      {"gateway", "move-users", "shared-a", "--to=shared-a", "--apply"},
-		"an unknown source":                {"gateway", "move-users", "nowhere", "--to=shared-b", "--apply"},
-	}
-	for name, argv := range cases {
-		t.Run(name, func(t *testing.T) {
-			expectRefused(t, fleet(t, argv...))
-		})
-	}
-}
-
-func TestGatewayMoveUsersHasNothingToDoOnAnEmptySource(t *testing.T) {
-	expectRead(t, fleet(t, "gateway", "move-users", "shared-b", "--to=shared-a", "--apply"))
-}
-
 func TestGatewayListIsReadOnlyAndNamesEveryGateway(t *testing.T) {
 	run := fleet(t, "gateway", "ls")
 	expectRead(t, run)

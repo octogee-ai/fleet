@@ -1,12 +1,10 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -25,7 +23,6 @@ var gatewayCommands = []*command{
 	{path: words("gateway recover-source"), usage: "<gateway> --sha=<full-sha> [--supersede-recovery=<id>]", argc: 1, summary: "Repair a shared gateway's source, keeping its pod storage.", flags: flagSet{"sha": valueFlag, "supersede-recovery": valueFlag}, required: []string{"sha"}, mutating: true, run: gatewayRecoverSource},
 	{path: words("gateway recover-restore"), usage: "<gateway> --sha=<full-sha> --operation=<id> [--reauthorize-attempt=<id>] [--supersede-recovery=<id>]", argc: 1, summary: "Upgrade a fenced restore target without replacing its storage.", flags: flagSet{"sha": valueFlag, "operation": valueFlag, "reauthorize-attempt": valueFlag, "supersede-recovery": valueFlag}, required: []string{"sha", "operation"}, mutating: true, run: gatewayRecoverRestore},
 	{path: words("gateway replace-vm"), usage: "<gateway> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace an isolated gateway's VM, keeping the verified home disk.", flags: flagSet{"force": bareFlag, "accept-boot-data-loss": bareFlag}, mutating: true, run: gatewayReplaceVM},
-	{path: words("gateway move-users"), usage: "<source> --to=<target> [--users=<a,b>]", argc: 1, summary: "Move the listed users, or all of them, through journaled migrations.", flags: flagSet{"to": valueFlag, "users": valueFlag}, required: []string{"to"}, mutating: true, run: gatewayMoveUsers},
 }
 
 func gatewayList(i *invocation) error {
@@ -223,66 +220,4 @@ func gatewayReplaceVM(i *invocation) error {
 		return err
 	}
 	return i.replaceVM(admin.Path("gateways", gateway.GatewayID, "vm", "replace"))
-}
-
-func gatewayMoveUsers(i *invocation) error {
-	gateways, err := i.gateways(false)
-	if err != nil {
-		return err
-	}
-	source, err := findGateway(gateways, i.args[0])
-	if err != nil {
-		return err
-	}
-	target, err := findGateway(gateways, i.value("to"))
-	if err != nil {
-		return err
-	}
-	if source.GatewayID == target.GatewayID {
-		return errors.New("--to names the source gateway")
-	}
-	if target.DesiredStatus != statusRunning {
-		return fmt.Errorf("gateway %q is %s, not running", target.GatewayID, target.DesiredStatus)
-	}
-	directory, err := i.placement()
-	if err != nil {
-		return err
-	}
-	ids, err := usersToMove(directory, source.GatewayID, i.value("users"))
-	if err != nil {
-		return err
-	}
-	if len(ids) == 0 {
-		fmt.Fprintf(i.out, "no users to move from %s\n", source.GatewayID)
-		return nil
-	}
-	return i.post(admin.Path("gateway-migrations", "bulk"), map[string]any{
-		"sourceGatewayId": source.GatewayID,
-		"toGatewayId":     target.GatewayID,
-		"userIds":         ids,
-	})
-}
-
-func usersToMove(directory placement, source, listed string) ([]string, error) {
-	if listed == "" {
-		var ids []string
-		for _, user := range directory.Users {
-			if user.AssignedGatewayID == source {
-				ids = append(ids, user.ID)
-			}
-		}
-		return ids, nil
-	}
-	var ids []string
-	for _, reference := range strings.Split(listed, ",") {
-		user, err := directory.user(reference)
-		if err != nil {
-			return nil, err
-		}
-		if user.AssignedGatewayID != source {
-			return nil, fmt.Errorf("user %q is not placed on %s", user.Name, source)
-		}
-		ids = append(ids, user.ID)
-	}
-	return ids, nil
 }

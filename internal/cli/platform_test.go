@@ -59,31 +59,6 @@ func TestLimitMustBeAPositiveInteger(t *testing.T) {
 	expectNothingSent(t, fleet(t, "ops", "ls", "--limit=all"))
 }
 
-func TestPoolAutoscalingMergesTheFlagsIntoTheCurrentSettings(t *testing.T) {
-	expectApplied(t, fleet(t, "pool", "autoscaling", "--users-per-gateway=25", "--apply"), adminRequest{
-		Method: http.MethodPatch, Path: "/api/admin/placement/autoscaling", Body: map[string]any{"enabled": true, "usersPerGateway": float64(25)},
-	})
-}
-
-func TestPoolAutoscalingCanDisable(t *testing.T) {
-	expectApplied(t, fleet(t, "pool", "autoscaling", "--enabled=false", "--apply"), adminRequest{
-		Method: http.MethodPatch, Path: "/api/admin/placement/autoscaling", Body: map[string]any{"enabled": false, "usersPerGateway": float64(40)},
-	})
-}
-
-func TestPoolAutoscalingRefusals(t *testing.T) {
-	cases := map[string][]string{
-		"no settings":       {"pool", "autoscaling", "--apply"},
-		"a malformed bool":  {"pool", "autoscaling", "--enabled=maybe", "--apply"},
-		"a zero user count": {"pool", "autoscaling", "--users-per-gateway=0", "--apply"},
-	}
-	for name, argv := range cases {
-		t.Run(name, func(t *testing.T) {
-			expectNothingSent(t, fleet(t, argv...))
-		})
-	}
-}
-
 func TestLogsStreamsTheFilteredLines(t *testing.T) {
 	run := fleet(t, "logs", "--level=warn", "--service=api", "--user=ada", "--migration=m-1", "--no-follow")
 	expectRead(t, run)

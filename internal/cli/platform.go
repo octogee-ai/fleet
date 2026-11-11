@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -18,7 +17,6 @@ var platformCommands = []*command{
 	{path: words("builds ls"), usage: "[--service=<service>] [--limit=<n>]", summary: "List builds.", flags: flagSet{"service": valueFlag, "limit": valueFlag}, run: buildsList},
 	{path: words("release status"), summary: "Show release convergence across the fleet.", run: releaseStatus},
 	{path: words("pool show"), summary: "Show the shared-gateway placement pool.", run: poolShow},
-	{path: words("pool autoscaling"), usage: "[--enabled=true|false] [--users-per-gateway=<n>]", summary: "Set the shared-gateway pool's autoscaling.", flags: flagSet{"enabled": valueFlag, "users-per-gateway": valueFlag}, mutating: true, run: poolAutoscaling},
 	{path: words("logs"), usage: "[--level=<level>] [--service=<names>] [--user=<names>] [--migration=<id>] [--gateway=<gateway>] [--since=<age>] [--no-follow] [--format=text|json]", summary: "Tail shared-gateway and VM-gateway logs together.", flags: flagSet{"level": valueFlag, "service": valueFlag, "user": valueFlag, "migration": valueFlag, "gateway": valueFlag, "since": valueFlag, "no-follow": bareFlag, "format": valueFlag}, run: logs},
 }
 
@@ -129,7 +127,6 @@ func poolShow(i *invocation) error {
 	config := directory.Config
 	fmt.Fprintf(i.out, "default gateway: %s\n", dash(config.DefaultGatewayID))
 	fmt.Fprintf(i.out, "shared pool: %s\n", dash(strings.Join(config.SharedGatewayIDs, ", ")))
-	fmt.Fprintf(i.out, "autoscaling: enabled=%t users-per-gateway=%d\n", config.Autoscaling.Enabled, config.Autoscaling.UsersPerGateway)
 	rows := make([][]string, 0, len(directory.Gateways))
 	for _, gateway := range directory.Gateways {
 		rows = append(rows, []string{
@@ -139,44 +136,6 @@ func poolShow(i *invocation) error {
 	}
 	writeTable(i.out, []string{"gateway", "class", "desired", "assigned", "mounted", "mismatched"}, rows)
 	return nil
-}
-
-func poolAutoscaling(i *invocation) error {
-	if !i.has("enabled") && !i.has("users-per-gateway") {
-		return errors.New("pool autoscaling requires --enabled or --users-per-gateway")
-	}
-	var enabled *bool
-	if i.has("enabled") {
-		value, err := strconv.ParseBool(i.value("enabled"))
-		if err != nil {
-			return fmt.Errorf("--enabled must be true or false, got %q", i.value("enabled"))
-		}
-		enabled = &value
-	}
-	usersPerGateway := 0
-	if i.has("users-per-gateway") {
-		value, err := positiveInt("users-per-gateway", i.value("users-per-gateway"))
-		if err != nil {
-			return err
-		}
-		usersPerGateway = value
-	}
-	directory, err := i.placement()
-	if err != nil {
-		return err
-	}
-	next := directory.Config.Autoscaling
-	if enabled != nil {
-		next.Enabled = *enabled
-	}
-	if usersPerGateway != 0 {
-		next.UsersPerGateway = usersPerGateway
-	}
-	return i.mutate(admin.Request{
-		Method: http.MethodPatch,
-		Path:   admin.Path("placement", "autoscaling"),
-		Body:   map[string]any{"enabled": next.Enabled, "usersPerGateway": next.UsersPerGateway},
-	})
 }
 
 func logs(i *invocation) error {
