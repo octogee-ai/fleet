@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/octogee-ai/fleet/internal/oidc"
+	"github.com/octogee-ai/octogee-fleet/internal/oidc"
 )
 
 const tokenCommandTimeout = time.Minute

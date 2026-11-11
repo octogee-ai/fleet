@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/octogee-ai/fleet/internal/cli"
+	"github.com/octogee-ai/octogee-fleet/internal/cli"
 )
 
 var version = "dev"

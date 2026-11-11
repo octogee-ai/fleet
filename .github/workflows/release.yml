@@ -30,19 +30,19 @@ jobs:
           mkdir dist
           for os in darwin linux; do
             for arch in amd64 arm64; do
-              name="fleet_${TAG}_${os}_${arch}"
+              name="octogee-fleet_${TAG}_${os}_${arch}"
               mkdir "dist/$name"
               CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
-                -ldflags "-s -w -X main.version=$TAG" -o "dist/$name/fleet" .
+                -ldflags "-s -w -X main.version=$TAG" -o "dist/$name/octogee-fleet" .
               cp LICENSE README.md "dist/$name/"
               tar -C dist -czf "dist/$name.tar.gz" "$name"
             done
           done
           cd dist
-          sha256sum fleet_*.tar.gz > checksums.txt
+          sha256sum octogee-fleet_*.tar.gz > checksums.txt
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/fleet_*.tar.gz dist/checksums.txt --verify-tag --title "$TAG" --generate-notes
+        run: gh release create "$TAG" dist/octogee-fleet_*.tar.gz dist/checksums.txt --verify-tag --title "$TAG" --generate-notes

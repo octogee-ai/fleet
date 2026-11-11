@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/octogee-ai/fleet/internal/admin"
+	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
 
 var platformCommands = []*command{

@@ -1,4 +1,4 @@
-// Package cli implements the fleet command line. Every command is a client of
+// Package cli implements the octogee-fleet command line. Every command is a client of
 // the Admin API: it reads what it needs, then sends at most one mutation.
 package cli
 
@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/octogee-ai/fleet/internal/admin"
-	"github.com/octogee-ai/fleet/internal/config"
-	"github.com/octogee-ai/fleet/internal/oidc"
+	"github.com/octogee-ai/octogee-fleet/internal/admin"
+	"github.com/octogee-ai/octogee-fleet/internal/config"
+	"github.com/octogee-ai/octogee-fleet/internal/oidc"
 )
 
 // Runtime is everything the command line touches outside its own memory.
@@ -35,7 +35,7 @@ func Run(ctx context.Context, argv []string, runtime Runtime) int {
 		return 0
 	}
 	if !errors.Is(err, errNoCommand) {
-		fmt.Fprintf(runtime.Stderr, "fleet: %v\n", err)
+		fmt.Fprintf(runtime.Stderr, "octogee-fleet: %v\n", err)
 	}
 	return 1
 }
@@ -61,7 +61,7 @@ func run(ctx context.Context, argv []string, runtime Runtime) error {
 	}
 	cmd, args := lookup(parsed.positional)
 	if cmd == nil {
-		return fmt.Errorf("unknown command %q; run `fleet help`", strings.Join(parsed.positional, " "))
+		return fmt.Errorf("unknown command %q; run `octogee-fleet help`", strings.Join(parsed.positional, " "))
 	}
 	if parsed.has("help") {
 		writeCommandHelp(runtime.Stdout, cmd)

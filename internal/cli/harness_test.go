@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/octogee-ai/fleet/internal/oidc"
+	"github.com/octogee-ai/octogee-fleet/internal/oidc"
 )
 
 const sha = "0123456789abcdef0123456789abcdef01234567"

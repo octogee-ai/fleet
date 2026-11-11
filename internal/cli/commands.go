@@ -12,8 +12,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/octogee-ai/fleet/internal/admin"
-	"github.com/octogee-ai/fleet/internal/config"
+	"github.com/octogee-ai/octogee-fleet/internal/admin"
+	"github.com/octogee-ai/octogee-fleet/internal/config"
 )
 
 type command struct {
@@ -85,16 +85,16 @@ func help(out io.Writer, target []string) error {
 	}
 	cmd, args := lookup(target)
 	if cmd == nil || len(args) != 0 {
-		return fmt.Errorf("unknown command %q; run `fleet help`", strings.Join(target, " "))
+		return fmt.Errorf("unknown command %q; run `octogee-fleet help`", strings.Join(target, " "))
 	}
 	writeCommandHelp(out, cmd)
 	return nil
 }
 
 func writeHelp(out io.Writer) {
-	fmt.Fprintln(out, "fleet: operate a fleet of OpenClaw gateways through the Admin API")
+	fmt.Fprintln(out, "octogee-fleet: operate a fleet of OpenClaw gateways through the Admin API")
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "usage: fleet --env=<name> <command> [arguments]")
+	fmt.Fprintln(out, "usage: octogee-fleet --env=<name> <command> [arguments]")
 	fmt.Fprintln(out, "Mutating commands are a dry run until --apply. `gw` is short for `gateway`.")
 	fmt.Fprintln(out)
 	table := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
@@ -103,13 +103,13 @@ func writeHelp(out io.Writer) {
 	}
 	table.Flush()
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Run `fleet help <command>` for one command's arguments.")
+	fmt.Fprintln(out, "Run `octogee-fleet help <command>` for one command's arguments.")
 }
 
 func writeCommandHelp(out io.Writer, cmd *command) {
 	fmt.Fprintln(out, cmd.summary)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "usage: fleet --env=<name> %s\n", cmd.synopsis())
+	fmt.Fprintf(out, "usage: octogee-fleet --env=<name> %s\n", cmd.synopsis())
 }
 
 type invocation struct {
