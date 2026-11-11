@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -35,7 +36,7 @@ func (c *command) synopsis() string {
 		parts = append(parts, c.usage)
 	}
 	if c.mutating {
-		parts = append(parts, "[--idempotency-key=<key>] [--apply]")
+		parts = append(parts, "[--idempotency-key=<key>] [--apply | --offline]")
 	}
 	return strings.Join(parts, " ")
 }
@@ -95,7 +96,8 @@ func writeHelp(out io.Writer) {
 	fmt.Fprintln(out, "octogee-fleet: operate a fleet of OpenClaw gateways through the Admin API")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "usage: octogee-fleet --env=<name> <command> [arguments]")
-	fmt.Fprintln(out, "Mutating commands are a dry run until --apply. `gw` is short for `gateway`.")
+	fmt.Fprintln(out, "Mutating commands are a dry run until --apply: the Admin API checks the request and")
+	fmt.Fprintln(out, "changes nothing. --offline prints the request without that check. `gw` is short for `gateway`.")
 	fmt.Fprintln(out)
 	table := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 	for _, cmd := range allCommands() {
@@ -151,8 +153,7 @@ func (i *invocation) sendMutation(request admin.Request, notes ...string) ([]byt
 		fmt.Fprintln(i.out, note)
 	}
 	if !i.has("apply") {
-		fmt.Fprintln(i.out, "dry run: pass --apply to send this request")
-		return nil, false, nil
+		return nil, false, i.dryRun(request)
 	}
 	data, err := i.admin.Send(i.ctx, request)
 	if err != nil {
@@ -160,6 +161,87 @@ func (i *invocation) sendMutation(request admin.Request, notes ...string) ([]byt
 	}
 	fmt.Fprintln(i.out, "applied")
 	return data, true, nil
+}
+
+func (i *invocation) dryRun(request admin.Request) error {
+	if i.has("offline") {
+		fmt.Fprintln(i.out, "dry run: pass --apply to send this request")
+		return nil
+	}
+	if !i.admin.Supports(admin.DryRun) {
+		fmt.Fprintln(i.out, "dry run: this Admin API does not answer dry runs, so it has not checked this request; pass --apply to send this request")
+		return nil
+	}
+	data, err := i.admin.Send(i.ctx, request.AsDryRun())
+	if err != nil {
+		return dryRunRefusal(err)
+	}
+	var answer dryRunAnswer
+	if err := json.Unmarshal(data, &answer); err != nil || !answer.DryRun {
+		return fmt.Errorf("the Admin API did not answer with a plan, so the change may have been applied; it returned: %s", strings.TrimSpace(string(data)))
+	}
+	if len(answer.Plans) == 0 {
+		return fmt.Errorf("the Admin API answered the dry run without saying what it would do; it returned: %s", strings.TrimSpace(string(data)))
+	}
+	answer.print(i.out)
+	fmt.Fprintln(i.out, "dry run: checks made while a change is applied are not predicted; pass --apply to send this request")
+	return nil
+}
+
+func dryRunRefusal(err error) error {
+	var refused *admin.HTTPError
+	if !errors.As(err, &refused) || refused.Status == http.StatusUnauthorized || refused.Status == http.StatusForbidden {
+		return err
+	}
+	return fmt.Errorf("dry run: the Admin API would refuse this request (%d): %s", refused.Status, refused.Message)
+}
+
+type dryRunAnswer struct {
+	DryRun bool `json:"dryRun"`
+	Plans  []struct {
+		What         string         `json:"what"`
+		Target       map[string]any `json:"target"`
+		CurrentState map[string]any `json:"preActionStatus"`
+		Forced       bool           `json:"forced"`
+	} `json:"plans"`
+}
+
+func (a dryRunAnswer) print(out io.Writer) {
+	for _, plan := range a.Plans {
+		fmt.Fprintf(out, "dry run: the Admin API would %s\n", plan.What)
+		printFields(out, "target", plan.Target)
+		printFields(out, "current state", plan.CurrentState)
+		if plan.Forced {
+			fmt.Fprintln(out, "  forced: yes")
+		}
+	}
+}
+
+func printFields(out io.Writer, label string, fields map[string]any) {
+	if len(fields) == 0 {
+		return
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+"="+fieldText(fields[name]))
+	}
+	fmt.Fprintf(out, "  %s: %s\n", label, strings.Join(parts, " "))
+}
+
+func fieldText(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(data)
 }
 
 func (i *invocation) printOutcome(data []byte) {

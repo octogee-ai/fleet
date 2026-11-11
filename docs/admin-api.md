@@ -14,6 +14,30 @@ A failed request returns a non-2xx status with `{"error": "<message>"}`. `401` m
 
 A journaled mutation returns `{"operationId": "<id>"}`.
 
+## Dry runs
+
+A mutating request with the query parameter `dryRun=true` is checked and not applied. The Admin API runs every check it makes before admitting the change, then returns `200`:
+
+```json
+{
+  "dryRun": true,
+  "plans": [{
+    "what": "restart gateway",
+    "target": { "gatewayId": "shared-a" },
+    "preActionStatus": { "desiredStatus": "running", "desiredRelease": 3 },
+    "forced": false
+  }]
+}
+```
+
+`what` names the change, `target` is what it acts on, and `preActionStatus` is the state it would start from. `forced` is true for a break-glass request. A plan also carries `why`, `kind` and `mutation` as the operations journal would record them.
+
+A dry run writes nothing and leaves its `Idempotency-Key` unused, so `octogee-fleet` sends none. A request the Admin API would refuse gets the status and error of the real request. `dryRun` must be `true` or `false`; any other value returns `400`.
+
+Every response carries the header `Admin-Api-Capabilities: dry-run`. An Admin API without it ignores `dryRun` and applies the request, so `octogee-fleet` sends a dry run only after it has seen the header. A `2xx` answer without `"dryRun": true` is reported as a change that may have been applied.
+
+A dry run does not predict checks made while a change is applied, an idempotency key that was already used, or failures later in the operation.
+
 ## `GET /gateways`
 
 `?all=true` includes retired gateways.

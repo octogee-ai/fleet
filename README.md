@@ -90,7 +90,7 @@ octogee-fleet --env=staging user migrate ada --to=shared-b
 octogee-fleet --env=staging user migrate ada --to=shared-b --apply
 ```
 
-Mutating commands print the request and send nothing until you pass `--apply`. Run `octogee-fleet help` for the command list.
+Mutating commands are a dry run until you pass `--apply`: they print the request and the Admin API checks it without changing anything. Run `octogee-fleet help` for the command list.
 
 ## Documentation
 

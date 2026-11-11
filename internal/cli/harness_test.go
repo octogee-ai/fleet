@@ -88,14 +88,18 @@ type recordedRequest struct {
 }
 
 type runOptions struct {
-	rejectWith    int
-	session       sessionState
-	refreshFails  bool
-	tokenCommand  []string
-	redirectTo    string
-	defaultHTTP   bool
-	omitPasswords bool
-	alterBinding  func(*oidc.Binding)
+	rejectWith       int
+	session          sessionState
+	refreshFails     bool
+	tokenCommand     []string
+	redirectTo       string
+	defaultHTTP      bool
+	omitPasswords    bool
+	alterBinding     func(*oidc.Binding)
+	withoutDryRuns   bool
+	refuseDryRunWith int
+	appliesDryRuns   bool
+	plansNothing     bool
 }
 
 type fleetRun struct {
@@ -107,14 +111,35 @@ type fleetRun struct {
 	sessionPath string
 }
 
+func (r recordedRequest) isDryRun() bool { return r.Query["dryRun"] == "true" }
+
 func (r fleetRun) mutations() []recordedRequest {
 	var sent []recordedRequest
 	for _, request := range r.requests {
-		if request.Method != http.MethodGet {
+		if request.Method != http.MethodGet && !request.isDryRun() {
 			sent = append(sent, request)
 		}
 	}
 	return sent
+}
+
+func (r fleetRun) dryRuns() []recordedRequest {
+	var sent []recordedRequest
+	for _, request := range r.requests {
+		if request.Method != http.MethodGet && request.isDryRun() {
+			sent = append(sent, request)
+		}
+	}
+	return sent
+}
+
+func (r fleetRun) onlyDryRun(t *testing.T) recordedRequest {
+	t.Helper()
+	sent := r.dryRuns()
+	if len(sent) != 1 {
+		t.Fatalf("expected exactly one dry run, saw %d: exit=%d stderr=%s", len(sent), r.exit, r.stderr)
+	}
+	return sent[0]
 }
 
 func (r fleetRun) onlyMutation(t *testing.T) adminRequest {
@@ -145,6 +170,9 @@ type adminStub struct {
 
 func (s *adminStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.record(r)
+	if !s.options.withoutDryRuns {
+		w.Header().Set("Admin-Api-Capabilities", "dry-run")
+	}
 	if s.options.redirectTo != "" {
 		http.Redirect(w, r, s.options.redirectTo, http.StatusTemporaryRedirect)
 		return
@@ -160,7 +188,40 @@ func (s *adminStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.serveRead(w, r)
 }
 
+func (s *adminStub) serveDryRun(w http.ResponseWriter, r *http.Request) {
+	if s.options.refuseDryRunWith != 0 {
+		writeJSON(w, s.options.refuseDryRunWith, map[string]any{"error": "gateway has a current retirement claim"})
+		return
+	}
+	if s.options.plansNothing {
+		writeJSON(w, http.StatusOK, map[string]any{"dryRun": true, "plans": []any{}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"dryRun": true,
+		"plans": []map[string]any{{
+			"what":            "change the fleet",
+			"why":             "Admin fleet request",
+			"kind":            "change-fleet",
+			"target":          map[string]any{"path": strings.TrimPrefix(r.URL.Path, "/api/admin")},
+			"preActionStatus": map[string]any{"desiredStatus": "running", "desiredRelease": 3},
+			"mutation":        map[string]any{"kind": "change-fleet"},
+			"forced":          s.lastBody()["force"] == true,
+		}},
+	})
+}
+
+func (s *adminStub) lastBody() map[string]any {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.requests[len(s.requests)-1].Body
+}
+
 func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("dryRun") == "true" && !s.options.appliesDryRuns {
+		s.serveDryRun(w, r)
+		return
+	}
 	if !strings.HasSuffix(r.URL.Path, "/one-time-passwords") {
 		writeJSON(w, http.StatusAccepted, map[string]any{"operationId": "op-recorded"})
 		return

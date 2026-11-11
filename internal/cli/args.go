@@ -60,6 +60,7 @@ func (c *command) acceptedFlags() flagSet {
 	}
 	if c.mutating {
 		accepted["apply"] = bareFlag
+		accepted["offline"] = bareFlag
 		accepted["idempotency-key"] = valueFlag
 	}
 	return accepted
@@ -82,6 +83,9 @@ func (c *command) validate(parsed parsedArgs, args []string) error {
 		if err := checkFlag(c, name, parsed.flags[name], accepted); err != nil {
 			return err
 		}
+	}
+	if parsed.has("apply") && parsed.has("offline") {
+		return errors.New("--offline prints a request without sending it, so it cannot be combined with --apply")
 	}
 	for _, name := range c.required {
 		if !parsed.has(name) {
