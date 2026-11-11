@@ -20,8 +20,6 @@ var gatewayCommands = []*command{
 	{path: words("gateway retire"), usage: "<gateway> [--retain-data] [--retain-service-account]", argc: 1, summary: "Retire an empty gateway.", flags: flagSet{"retain-data": bareFlag, "retain-service-account": bareFlag}, mutating: true, run: gatewayRetire},
 	{path: words("gateway releases"), usage: "<gateway>", argc: 1, summary: "List a gateway's releases.", run: gatewayReleases},
 	{path: words("gateway rollback"), usage: "<gateway> --release=<n>", argc: 1, summary: "Roll a gateway back to an earlier release.", flags: flagSet{"release": valueFlag}, required: []string{"release"}, mutating: true, run: gatewayRollback},
-	{path: words("gateway recover-source"), usage: "<gateway> --sha=<full-sha> [--supersede-recovery=<id>]", argc: 1, summary: "Repair a shared gateway's source, keeping its pod storage.", flags: flagSet{"sha": valueFlag, "supersede-recovery": valueFlag}, required: []string{"sha"}, mutating: true, run: gatewayRecoverSource},
-	{path: words("gateway recover-restore"), usage: "<gateway> --sha=<full-sha> --operation=<id> [--reauthorize-attempt=<id>] [--supersede-recovery=<id>]", argc: 1, summary: "Upgrade a fenced restore target without replacing its storage.", flags: flagSet{"sha": valueFlag, "operation": valueFlag, "reauthorize-attempt": valueFlag, "supersede-recovery": valueFlag}, required: []string{"sha", "operation"}, mutating: true, run: gatewayRecoverRestore},
 	{path: words("gateway replace-vm"), usage: "<gateway> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace an isolated gateway's VM, keeping the verified home disk.", flags: flagSet{"force": bareFlag, "accept-boot-data-loss": bareFlag}, mutating: true, run: gatewayReplaceVM},
 }
 
@@ -161,57 +159,6 @@ func gatewayRollback(i *invocation) error {
 		return err
 	}
 	return i.post(admin.Path("gateways", gateway.GatewayID, "releases", strconv.Itoa(release), "rollback"), nil)
-}
-
-func gatewayRecoverSource(i *invocation) error {
-	sha, err := fullSHA(i.value("sha"))
-	if err != nil {
-		return err
-	}
-	body := map[string]any{"sourceSha": sha}
-	if err := addOpaque(i, body, "supersede-recovery", "supersedeRecoveryId"); err != nil {
-		return err
-	}
-	gateway, err := i.gateway(i.args[0])
-	if err != nil {
-		return err
-	}
-	return i.post(admin.Path("gateways", gateway.GatewayID, "recover-source"), body)
-}
-
-func gatewayRecoverRestore(i *invocation) error {
-	sha, err := fullSHA(i.value("sha"))
-	if err != nil {
-		return err
-	}
-	operation, err := opaqueID("operation", i.value("operation"))
-	if err != nil {
-		return err
-	}
-	body := map[string]any{"sourceSha": sha, "operationId": operation}
-	if err := addOpaque(i, body, "reauthorize-attempt", "reauthorizeAttemptId"); err != nil {
-		return err
-	}
-	if err := addOpaque(i, body, "supersede-recovery", "supersedeRecoveryId"); err != nil {
-		return err
-	}
-	gateway, err := i.gateway(i.args[0])
-	if err != nil {
-		return err
-	}
-	return i.post(admin.Path("gateways", gateway.GatewayID, "recover-restore"), body)
-}
-
-func addOpaque(i *invocation, body map[string]any, flag, field string) error {
-	if !i.has(flag) {
-		return nil
-	}
-	value, err := opaqueID(flag, i.value(flag))
-	if err != nil {
-		return err
-	}
-	body[field] = value
-	return nil
 }
 
 func gatewayReplaceVM(i *invocation) error {

@@ -21,10 +21,6 @@ func TestGatewayMutations(t *testing.T) {
 		{[]string{"gateway", "retire", "shared-b"}, adminRequest{Method: http.MethodDelete, Path: prefix + "shared-b"}},
 		{[]string{"gateway", "retire", "shared-b", "--retain-data", "--retain-service-account"}, adminRequest{Method: http.MethodDelete, Path: prefix + "shared-b", Query: map[string]string{"retainData": "true", "retainServiceAccount": "true"}}},
 		{[]string{"gateway", "rollback", "shared-a", "--release=7"}, adminRequest{Method: http.MethodPost, Path: prefix + "shared-a/releases/7/rollback"}},
-		{[]string{"gateway", "recover-source", "shared-a", "--sha=" + sha}, adminRequest{Method: http.MethodPost, Path: prefix + "shared-a/recover-source", Body: map[string]any{"sourceSha": sha}}},
-		{[]string{"gateway", "recover-source", "shared-a", "--sha=" + sha, "--supersede-recovery=rec-1"}, adminRequest{Method: http.MethodPost, Path: prefix + "shared-a/recover-source", Body: map[string]any{"sourceSha": sha, "supersedeRecoveryId": "rec-1"}}},
-		{[]string{"gateway", "recover-restore", "shared-a", "--sha=" + sha, "--operation=op-1"}, adminRequest{Method: http.MethodPost, Path: prefix + "shared-a/recover-restore", Body: map[string]any{"sourceSha": sha, "operationId": "op-1"}}},
-		{[]string{"gateway", "recover-restore", "shared-a", "--sha=" + sha, "--operation=op-1", "--reauthorize-attempt=a-1", "--supersede-recovery=rec-1"}, adminRequest{Method: http.MethodPost, Path: prefix + "shared-a/recover-restore", Body: map[string]any{"sourceSha": sha, "operationId": "op-1", "reauthorizeAttemptId": "a-1", "supersedeRecoveryId": "rec-1"}}},
 		{[]string{"gateway", "replace-vm", "iso-grace"}, adminRequest{Method: http.MethodPost, Path: prefix + "iso-grace/vm/replace", Body: map[string]any{}}},
 	}
 	for _, testCase := range cases {
@@ -60,16 +56,11 @@ func TestGatewayRefusesAnythingButAFullLowercaseSha(t *testing.T) {
 		{"gateway", "deploy", "shared-a", "--sha=main"},
 		{"gateway", "deploy", "shared-a", "--sha=" + strings.ToUpper(sha)},
 		{"gateway", "deploy", "shared-a", "--sha=" + sha[:12]},
-		{"gateway", "recover-source", "shared-a", "--sha=abc"},
 	} {
 		t.Run(strings.Join(argv, " "), func(t *testing.T) {
 			expectRefused(t, fleet(t, append(argv, "--apply")...))
 		})
 	}
-}
-
-func TestGatewayRefusesARecoveryIDThatIsAPath(t *testing.T) {
-	expectRefused(t, fleet(t, "gateway", "recover-source", "shared-a", "--sha="+sha, "--supersede-recovery=a/b", "--apply"))
 }
 
 func TestGatewayRollbackRefusesAReleaseThatIsNotAPositiveInteger(t *testing.T) {
