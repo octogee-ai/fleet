@@ -25,6 +25,7 @@ The platform runs OpenClaw gateways for its users:
 - **The Admin API is the only boundary.** `octogee-fleet` needs no database, cluster or cloud credentials, and starts no process except an environment's `tokenCommand`.
 - **Identity is OpenID Connect.** Every request carries the ID token from the operator's sign-in, or the one an environment's `tokenCommand` prints. `octogee-fleet` renews an expired session and never mints or verifies tokens; the Admin API verifies each one.
 - **Reads come first, then at most one mutating request.** A token the Admin API rejects stops the command before any mutation.
+- **Mechanism, not policy.** Users move one at a time with `user migrate`. `octogee-fleet` does not decide when to add or retire shared gateways or when to rebalance users, and it has no commands for automated or advanced recovery of a gateway stuck mid-move; those belong to whatever you run on top of the platform.
 - **Dry run by default.** A mutating command prints the request it would send. A bare `--apply` sends it.
 - **`--idempotency-key=<key>`** becomes the request's `Idempotency-Key` header. A retried command with the same key changes nothing twice.
 - **Applied mutations are journaled.** The command prints the operation id the Admin API returns.
@@ -57,10 +58,7 @@ These talk to the environment's OIDC issuer, not the Admin API.
 | `gateway retire <gateway> [--retain-data] [--retain-service-account]` | Retires an empty gateway | `DELETE /gateways/<gateway>` |
 | `gateway releases <gateway>` | Lists the gateway's releases | `GET /gateways/<gateway>/releases` |
 | `gateway rollback <gateway> --release=<n>` | Rolls the gateway back to release `n` | `POST /gateways/<gateway>/releases/<n>/rollback` |
-| `gateway recover-source <gateway> --sha= [--supersede-recovery=<id>]` | Repairs a shared gateway's source after a failed database export, keeping its pod storage | `POST /gateways/<gateway>/recover-source` |
-| `gateway recover-restore <gateway> --sha= --operation=<id> [--reauthorize-attempt=<id>] [--supersede-recovery=<id>]` | Upgrades a fenced restore target without replacing its storage | `POST /gateways/<gateway>/recover-restore` |
 | `gateway replace-vm <gateway> [--force --accept-boot-data-loss]` | Replaces an isolated gateway's VM from the current image, keeping the verified home disk | `POST /gateways/<gateway>/vm/replace` |
-| `gateway move-users <source> --to=<target> [--users=<a,b>]` | Moves the listed users, or all of them, through journaled migrations | `POST /gateway-migrations/bulk` |
 
 ## User commands
 
@@ -88,5 +86,4 @@ These talk to the environment's OIDC issuer, not the Admin API.
 | `builds ls [--service=] [--limit=]` | Lists builds | `GET /builds` |
 | `release status` | Shows release convergence across the fleet | `GET /release-status` |
 | `pool show` | Shows the shared-gateway placement pool | `GET /placement` |
-| `pool autoscaling [--enabled=true\|false] [--users-per-gateway=<n>]` | Sets the shared-gateway pool's autoscaling, keeping any setting not named | `PATCH /placement/autoscaling` |
 | `logs [--level=] [--service=] [--user=] [--migration=] [--gateway=] [--since=] [--no-follow] [--format=text\|json]` | Tails shared-gateway and VM-gateway logs together | `GET /logs` |

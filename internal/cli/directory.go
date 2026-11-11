@@ -37,11 +37,6 @@ type placedUser struct {
 	DriftState         string `json:"driftState"`
 }
 
-type autoscaling struct {
-	Enabled         bool `json:"enabled"`
-	UsersPerGateway int  `json:"usersPerGateway"`
-}
-
 type placementGateway struct {
 	GatewayID     string `json:"gatewayId"`
 	GatewayClass  string `json:"gatewayClass"`
@@ -53,9 +48,8 @@ type placementGateway struct {
 
 type placement struct {
 	Config struct {
-		DefaultGatewayID string      `json:"defaultGatewayId"`
-		SharedGatewayIDs []string    `json:"sharedGatewayIds"`
-		Autoscaling      autoscaling `json:"sharedGatewayAutoscaling"`
+		DefaultGatewayID string   `json:"defaultGatewayId"`
+		SharedGatewayIDs []string `json:"sharedGatewayIds"`
 	} `json:"config"`
 	Gateways []placementGateway `json:"gateways"`
 	Users    []placedUser       `json:"users"`
