@@ -5,7 +5,7 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -13,10 +13,16 @@ concurrency:
 
 jobs:
   release:
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
@@ -40,6 +46,10 @@ jobs:
           done
           cd dist
           sha256sum octogee-fleet_*.tar.gz > checksums.txt
+      - name: Attest release archives
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: dist/octogee-fleet_*.tar.gz
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

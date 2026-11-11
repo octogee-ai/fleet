@@ -104,3 +104,17 @@ go test ./...
 ```
 
 The tests run the real command line against a recording Admin API and OIDC issuer over HTTP.
+
+## Verify release provenance
+
+Releases built after the attestation workflow lands include GitHub build
+provenance for each archive. Before extracting a downloaded archive, verify it
+with the GitHub CLI, substituting its actual filename:
+
+```bash
+gh attestation verify ./octogee-fleet_VERSION_OS_ARCH.tar.gz --repo octogee-ai/octogee-fleet
+```
+
+The release also includes `checksums.txt`. Earlier releases may not have
+attestations. See [the security policy](SECURITY.md) for reporting vulnerabilities
+and supported versions.

@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "23 8 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,6 +21,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Review dependency changes
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          fail-on-severity: moderate
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
@@ -32,3 +42,10 @@ jobs:
           fi
       - run: go vet ./...
       - run: go test ./...
+      - name: Check reachable Go vulnerabilities
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f
+        with:
+          go-version-input: ''
+          go-version-file: go.mod
+          repo-checkout: false
+          cache: false
