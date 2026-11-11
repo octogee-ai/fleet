@@ -8,7 +8,7 @@ import (
 
 func newStore(t *testing.T) Store {
 	t.Helper()
-	return Store{Dir: filepath.Join(t.TempDir(), "state", "fleet")}
+	return Store{Dir: filepath.Join(t.TempDir(), "state", "octogee-fleet")}
 }
 
 func TestStoreRoundTripsOneSessionPerEnvironment(t *testing.T) {
@@ -112,7 +112,15 @@ func TestStateDirPrefersTheXDGDirectory(t *testing.T) {
 		}
 		return ""
 	})
-	if err != nil || dir != filepath.Join("/state", "fleet") {
+	if err != nil || dir != filepath.Join("/state", "octogee-fleet") {
+		t.Fatalf("dir %q, error %v", dir, err)
+	}
+}
+
+func TestStateDirFallsBackToTheHomeDirectory(t *testing.T) {
+	t.Setenv("HOME", "/home/operator")
+	dir, err := StateDir(func(string) string { return "" })
+	if err != nil || dir != filepath.Join("/home/operator", ".local", "state", "octogee-fleet") {
 		t.Fatalf("dir %q, error %v", dir, err)
 	}
 }

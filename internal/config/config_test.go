@@ -119,7 +119,7 @@ func TestATokenCommandPrintingNothingIsRefused(t *testing.T) {
 
 func TestPathPrefersTheExplicitConfiguration(t *testing.T) {
 	path, err := Path(func(name string) string {
-		if name == "FLEET_CONFIG" {
+		if name == "OCTOGEE_FLEET_CONFIG" {
 			return "/explicit/config.json"
 		}
 		return "/xdg"
@@ -136,7 +136,15 @@ func TestPathFallsBackToTheXDGDirectory(t *testing.T) {
 		}
 		return ""
 	})
-	if err != nil || path != filepath.Join("/xdg", "fleet", "config.json") {
+	if err != nil || path != filepath.Join("/xdg", "octogee-fleet", "config.json") {
+		t.Fatalf("path %q, error %v", path, err)
+	}
+}
+
+func TestPathFallsBackToTheHomeDirectory(t *testing.T) {
+	t.Setenv("HOME", "/home/operator")
+	path, err := Path(func(string) string { return "" })
+	if err != nil || path != filepath.Join("/home/operator", ".config", "octogee-fleet", "config.json") {
 		t.Fatalf("path %q, error %v", path, err)
 	}
 }

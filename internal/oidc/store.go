@@ -17,13 +17,13 @@ type Store struct {
 // StateDir returns where sessions live.
 func StateDir(getenv func(string) string) (string, error) {
 	if dir := getenv("XDG_STATE_HOME"); dir != "" {
-		return filepath.Join(dir, "fleet"), nil
+		return filepath.Join(dir, "octogee-fleet"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("find the session directory: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "fleet"), nil
+	return filepath.Join(home, ".local", "state", "octogee-fleet"), nil
 }
 
 func (s Store) path(environment string) string {

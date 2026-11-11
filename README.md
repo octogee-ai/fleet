@@ -12,6 +12,8 @@ go install github.com/octogee-ai/octogee-fleet@latest
 
 Or download the archive for your system from [Releases](https://github.com/octogee-ai/octogee-fleet/releases), check it against `checksums.txt`, and put the `octogee-fleet` binary inside it on your `PATH`. Releases cover macOS and Linux on amd64 and arm64.
 
+This tool was called `fleet` before. If you have a configuration at `~/.config/fleet/config.json`, move it to `~/.config/octogee-fleet/config.json`, and set `OCTOGEE_FLEET_CONFIG` where you set `FLEET_CONFIG`. Sign in again afterwards.
+
 ## Build
 
 ```bash
@@ -20,7 +22,7 @@ go build -o octogee-fleet .
 
 ## Configure
 
-`octogee-fleet` reads `$FLEET_CONFIG`, then `$XDG_CONFIG_HOME/fleet/config.json`, then `~/.config/fleet/config.json`.
+`octogee-fleet` reads `$OCTOGEE_FLEET_CONFIG`, then `$XDG_CONFIG_HOME/octogee-fleet/config.json`, then `~/.config/octogee-fleet/config.json`.
 
 ```json
 {
@@ -57,7 +59,7 @@ Then sign in:
 octogee-fleet --env=staging login
 ```
 
-`octogee-fleet` prints a URL and a code, and you approve the sign-in in any browser. `octogee-fleet` keeps the session in `$XDG_STATE_HOME/fleet/<environment>.json` or `~/.local/state/fleet/<environment>.json`, readable only by you, and renews it when it expires. Other issuers that offer the OAuth device authorization grant can be added to the platform later. A session belongs to the issuer, client and Admin API origin it was made for, so changing any of them asks you to sign in again.
+`octogee-fleet` prints a URL and a code, and you approve the sign-in in any browser. `octogee-fleet` keeps the session in `$XDG_STATE_HOME/octogee-fleet/<environment>.json` or `~/.local/state/octogee-fleet/<environment>.json`, readable only by you, and renews it when it expires. Other issuers that offer the OAuth device authorization grant can be added to the platform later. A session belongs to the issuer, client and Admin API origin it was made for, so changing any of them asks you to sign in again.
 
 ```bash
 octogee-fleet --env=staging logout

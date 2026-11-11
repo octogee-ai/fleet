@@ -41,17 +41,17 @@ type File struct {
 
 // Path returns the configuration file the operator selected.
 func Path(getenv func(string) string) (string, error) {
-	if path := getenv("FLEET_CONFIG"); path != "" {
+	if path := getenv("OCTOGEE_FLEET_CONFIG"); path != "" {
 		return path, nil
 	}
 	if dir := getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "fleet", "config.json"), nil
+		return filepath.Join(dir, "octogee-fleet", "config.json"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("find the operator configuration: %w", err)
 	}
-	return filepath.Join(home, ".config", "fleet", "config.json"), nil
+	return filepath.Join(home, ".config", "octogee-fleet", "config.json"), nil
 }
 
 // Load reads and validates a configuration file.
