@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/octogee-ai/fleet/internal/admin"
+	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
 
 const (

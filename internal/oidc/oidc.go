@@ -34,7 +34,7 @@ type Doer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-// Settings names the issuer and the client fleet signs in as.
+// Settings names the issuer and the client octogee-fleet signs in as.
 type Settings struct {
 	Issuer       string   `json:"issuer"`
 	ClientID     string   `json:"clientId"`

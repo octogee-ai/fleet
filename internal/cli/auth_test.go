@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/octogee-ai/fleet/internal/oidc"
+	"github.com/octogee-ai/octogee-fleet/internal/oidc"
 )
 
 func TestTheDefaultClientRefusesToRedirectTheBearerToPlainText(t *testing.T) {
@@ -63,7 +63,7 @@ func TestSigningOutForgetsTheSession(t *testing.T) {
 func TestWithoutASignInNothingIsSentAndTheRemedyIsNamed(t *testing.T) {
 	run := fleetWith(t, fixture, runOptions{session: notSignedIn}, "gateway", "ls")
 	expectNothingSent(t, run)
-	expectContains(t, run.stderr, "fleet --env=local login")
+	expectContains(t, run.stderr, "octogee-fleet --env=local login")
 }
 
 func TestAnExpiredSessionIsRenewedAndTheRenewalIsKept(t *testing.T) {
@@ -102,7 +102,7 @@ func TestASessionFromAnotherConfigurationIsNeitherSentNorRenewed(t *testing.T) {
 				if len(run.issuerForms) != 0 {
 					t.Fatalf("issuer saw %v", run.issuerForms)
 				}
-				expectContains(t, run.stderr, "fleet --env=local login")
+				expectContains(t, run.stderr, "octogee-fleet --env=local login")
 			})
 		}
 	}
@@ -120,13 +120,13 @@ func TestARefusedRenewalSendsNothingAndNamesTheRemedy(t *testing.T) {
 	run := fleetWith(t, fixture, runOptions{session: expiredSession, refreshFails: true}, "gateway", "park", "shared-a", "--apply")
 	expectNothingSent(t, run)
 	expectContains(t, run.stderr, "revoked")
-	expectContains(t, run.stderr, "fleet --env=local login")
+	expectContains(t, run.stderr, "octogee-fleet --env=local login")
 }
 
 func TestAnExpiredSessionWithoutARefreshTokenAsksForASignIn(t *testing.T) {
 	run := fleetWith(t, fixture, runOptions{session: expiredWithoutRefresh}, "gateway", "ls")
 	expectNothingSent(t, run)
-	expectContains(t, run.stderr, "fleet --env=local login")
+	expectContains(t, run.stderr, "octogee-fleet --env=local login")
 }
 
 func TestATokenCommandSuppliesTheBearerForAutomation(t *testing.T) {

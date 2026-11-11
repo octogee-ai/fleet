@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/octogee-ai/fleet/internal/oidc"
+	"github.com/octogee-ai/octogee-fleet/internal/oidc"
 )
 
 const sha = "0123456789abcdef0123456789abcdef01234567"
@@ -413,13 +413,13 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 		t.Fatal(err)
 	}
 	stateHome := t.TempDir()
-	store := oidc.Store{Dir: filepath.Join(stateHome, "fleet")}
+	store := oidc.Store{Dir: filepath.Join(stateHome, "octogee-fleet")}
 	binding := oidc.Binding{Issuer: issuerServer.URL, ClientID: "fleet-cli", APIOrigin: server.URL}
 	if options.alterBinding != nil {
 		options.alterBinding(&binding)
 	}
 	seedSession(t, store, fixture.environment, options.session, binding)
-	environment := map[string]string{"FLEET_CONFIG": path, "XDG_STATE_HOME": stateHome}
+	environment := map[string]string{"OCTOGEE_FLEET_CONFIG": path, "XDG_STATE_HOME": stateHome}
 	var stdout, stderr bytes.Buffer
 	runtime := Runtime{
 		Stdout:  &stdout,

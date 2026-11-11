@@ -1,4 +1,4 @@
-# The fleet command line
+# The octogee-fleet command line
 
 The platform runs OpenClaw gateways for its users:
 
@@ -9,7 +9,7 @@ The platform runs OpenClaw gateways for its users:
 
 | Term | Meaning |
 | --- | --- |
-| Operator | The person who runs the platform. Every `fleet` request carries the operator's identity. |
+| Operator | The person who runs the platform. Every `octogee-fleet` request carries the operator's identity. |
 | User | A person the platform serves. Each user is placed on one gateway and has an OpenClaw agent there. |
 | Gateway | An OpenClaw gateway the platform runs: shared or isolated. |
 | VM | The machine an isolated gateway runs on. Its home disk holds the user's state; its boot disk is replaceable. |
@@ -22,8 +22,8 @@ The platform runs OpenClaw gateways for its users:
 ## How every command behaves
 
 - **`--env=<name>` is required.** Names come from the operator's configuration; none are built in.
-- **The Admin API is the only boundary.** `fleet` needs no database, cluster or cloud credentials, and starts no process except an environment's `tokenCommand`.
-- **Identity is OpenID Connect.** Every request carries the ID token from the operator's sign-in, or the one an environment's `tokenCommand` prints. `fleet` renews an expired session and never mints or verifies tokens; the Admin API verifies each one.
+- **The Admin API is the only boundary.** `octogee-fleet` needs no database, cluster or cloud credentials, and starts no process except an environment's `tokenCommand`.
+- **Identity is OpenID Connect.** Every request carries the ID token from the operator's sign-in, or the one an environment's `tokenCommand` prints. `octogee-fleet` renews an expired session and never mints or verifies tokens; the Admin API verifies each one.
 - **Reads come first, then at most one mutating request.** A token the Admin API rejects stops the command before any mutation.
 - **Dry run by default.** A mutating command prints the request it would send. A bare `--apply` sends it.
 - **`--idempotency-key=<key>`** becomes the request's `Idempotency-Key` header. A retried command with the same key changes nothing twice.

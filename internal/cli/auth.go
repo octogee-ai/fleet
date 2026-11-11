@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/octogee-ai/fleet/internal/config"
-	"github.com/octogee-ai/fleet/internal/oidc"
+	"github.com/octogee-ai/octogee-fleet/internal/config"
+	"github.com/octogee-ai/octogee-fleet/internal/oidc"
 )
 
 var authCommands = []*command{
@@ -86,20 +86,20 @@ func sessionToken(ctx context.Context, name string, environment config.Environme
 		return "", err
 	}
 	if !found {
-		return "", fmt.Errorf("not signed in to %s; run `fleet --env=%s login`", name, name)
+		return "", fmt.Errorf("not signed in to %s; run `octogee-fleet --env=%s login`", name, name)
 	}
 	if session.Binding != sessionBinding(environment) {
-		return "", fmt.Errorf("the saved sign-in for %s was made under a different configuration; run `fleet --env=%s login`", name, name)
+		return "", fmt.Errorf("the saved sign-in for %s was made under a different configuration; run `octogee-fleet --env=%s login`", name, name)
 	}
 	if session.Valid(time.Now()) {
 		return session.IDToken, nil
 	}
 	if session.RefreshToken == "" {
-		return "", fmt.Errorf("the sign-in to %s has expired; run `fleet --env=%s login`", name, name)
+		return "", fmt.Errorf("the sign-in to %s has expired; run `octogee-fleet --env=%s login`", name, name)
 	}
 	refreshed, err := oidcClient(environment, runtime).Refresh(ctx, session)
 	if err != nil {
-		return "", fmt.Errorf("the sign-in to %s could not be renewed (%w); run `fleet --env=%s login`", name, err, name)
+		return "", fmt.Errorf("the sign-in to %s could not be renewed (%w); run `octogee-fleet --env=%s login`", name, err, name)
 	}
 	if err := store.Save(name, refreshed); err != nil {
 		return "", err

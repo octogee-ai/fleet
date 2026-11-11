@@ -67,7 +67,7 @@ func (c *command) acceptedFlags() flagSet {
 
 func (c *command) validate(parsed parsedArgs, args []string) error {
 	if len(args) != c.argc {
-		return fmt.Errorf("usage: fleet --env=<name> %s", c.synopsis())
+		return fmt.Errorf("usage: octogee-fleet --env=<name> %s", c.synopsis())
 	}
 	accepted := c.acceptedFlags()
 	names := make([]string, 0, len(parsed.flags))
@@ -85,7 +85,7 @@ func (c *command) validate(parsed parsedArgs, args []string) error {
 	}
 	for _, name := range c.required {
 		if !parsed.has(name) {
-			return fmt.Errorf("%s requires --%s; usage: fleet --env=<name> %s", c.name(), name, c.synopsis())
+			return fmt.Errorf("%s requires --%s; usage: octogee-fleet --env=<name> %s", c.name(), name, c.synopsis())
 		}
 	}
 	return nil

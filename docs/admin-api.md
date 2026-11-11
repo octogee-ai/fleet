@@ -1,10 +1,10 @@
 # The Admin API contract
 
-`fleet` depends on the platform only through these responses. Requests are listed in [the command reference](fleet-cli.md). All are under `/api/admin`, carry `Authorization: Bearer <OIDC ID token>`, and return JSON. Fields not listed here are ignored.
+`octogee-fleet` depends on the platform only through these responses. Requests are listed in [the command reference](octogee-fleet-cli.md). All are under `/api/admin`, carry `Authorization: Bearer <OIDC ID token>`, and return JSON. Fields not listed here are ignored.
 
 ## Identity
 
-The bearer is an ID token from an OpenID Connect issuer the platform trusts, which today is Google. The Admin API checks its signature against the issuer's published keys, and its issuer, audience and expiry. A verified email on the platform's operator list holds the operator role. There are no other operator credentials. `fleet` reads only the token's expiry, to decide when to renew it.
+The bearer is an ID token from an OpenID Connect issuer the platform trusts, which today is Google. The Admin API checks its signature against the issuer's published keys, and its issuer, audience and expiry. A verified email on the platform's operator list holds the operator role. There are no other operator credentials. `octogee-fleet` reads only the token's expiry, to decide when to renew it.
 
 ## Errors
 
@@ -80,7 +80,7 @@ A journaled mutation returns `{"operationId": "<id>"}`.
 
 ## `GET /builds`
 
-`fleet` prints the `builds` array as returned.
+`octogee-fleet` prints the `builds` array as returned.
 
 ## `GET /release-status`
 

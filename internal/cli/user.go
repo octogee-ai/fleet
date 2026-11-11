@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/octogee-ai/fleet/internal/admin"
+	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
 
 const provisioningComplete = "complete"
@@ -87,7 +87,7 @@ func userAdd(i *invocation) error {
 		return fmt.Errorf("the name %q is already taken", name)
 	}
 	return i.post(admin.Path("users"), map[string]any{"name": name, "email": i.value("email")},
-		fmt.Sprintf("once `fleet user inspect %s` shows provisioning complete, run `fleet user issue-passwords %s --apply`", name, name))
+		fmt.Sprintf("once `octogee-fleet user inspect %s` shows provisioning complete, run `octogee-fleet user issue-passwords %s --apply`", name, name))
 }
 
 type signIn struct {
@@ -140,7 +140,7 @@ func userAssign(i *invocation) error {
 		return nil
 	}
 	if user.AssignedGatewayID != "" {
-		return fmt.Errorf("%s is already on %s; use `fleet user migrate` to move them", user.Name, user.AssignedGatewayID)
+		return fmt.Errorf("%s is already on %s; use `octogee-fleet user migrate` to move them", user.Name, user.AssignedGatewayID)
 	}
 	if target.GatewayClass == classIsolated && target.OwnerID != user.ID {
 		return fmt.Errorf("gateway %q is isolated for another user", target.GatewayID)
@@ -158,7 +158,7 @@ func userMigrate(i *invocation) error {
 		return err
 	}
 	if user.AssignedGatewayID == "" {
-		return fmt.Errorf("%s has no gateway to move from; use `fleet user assign` to place them", user.Name)
+		return fmt.Errorf("%s has no gateway to move from; use `octogee-fleet user assign` to place them", user.Name)
 	}
 	if user.AssignedGatewayID == target.GatewayID {
 		fmt.Fprintf(i.out, "%s is already on %s; nothing to do\n", user.Name, target.GatewayID)
