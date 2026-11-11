@@ -16,10 +16,15 @@ import (
 )
 
 const (
-	apiPrefix      = "/api/admin"
-	requestTimeout = 2 * time.Minute
-	maxLogLine     = 4 << 20
+	apiPrefix          = "/api/admin"
+	requestTimeout     = 2 * time.Minute
+	maxLogLine         = 4 << 20
+	capabilitiesHeader = "Admin-Api-Capabilities"
+	dryRunParameter    = "dryRun"
 )
+
+// DryRun is the capability an Admin API advertises when it answers dry runs.
+const DryRun = "dry-run"
 
 // Doer sends one HTTP request.
 type Doer interface {
@@ -41,6 +46,19 @@ func (r Request) Target() string {
 		return r.Path
 	}
 	return r.Path + "?" + r.Query.Encode()
+}
+
+// AsDryRun marks the request so the Admin API plans it instead of applying it.
+// A dry run records nothing, so it carries no idempotency key.
+func (r Request) AsDryRun() Request {
+	query := url.Values{}
+	for name, values := range r.Query {
+		query[name] = append([]string{}, values...)
+	}
+	query.Set(dryRunParameter, "true")
+	r.Query = query
+	r.IdempotencyKey = ""
+	return r
 }
 
 // Path joins escaped segments under the Admin API prefix.
@@ -71,7 +89,25 @@ type Client struct {
 	HTTP   Doer
 	Token  func(context.Context) (string, error)
 
-	token string
+	token        string
+	capabilities map[string]bool
+}
+
+// Supports reports whether a response so far advertised the capability. An
+// Admin API that does not know a capability ignores its request marker.
+func (c *Client) Supports(capability string) bool { return c.capabilities[capability] }
+
+func (c *Client) observe(header http.Header) {
+	for _, value := range header.Values(capabilitiesHeader) {
+		for _, name := range strings.Split(value, ",") {
+			if name = strings.TrimSpace(name); name != "" {
+				if c.capabilities == nil {
+					c.capabilities = map[string]bool{}
+				}
+				c.capabilities[name] = true
+			}
+		}
+	}
 }
 
 // Send performs a request and returns the response body.
@@ -131,6 +167,7 @@ func (c *Client) open(ctx context.Context, request Request) (*http.Response, err
 	if err != nil {
 		return nil, fmt.Errorf("call the Admin API: %w", err)
 	}
+	c.observe(response.Header)
 	if response.StatusCode >= 200 && response.StatusCode < 300 {
 		return response, nil
 	}

@@ -3,6 +3,7 @@ package cli
 import (
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -28,6 +29,106 @@ func TestMutatingCommandsAreDryRunWithoutApply(t *testing.T) {
 				t.Fatalf("expected a dry-run notice in:\n%s", run.stdout)
 			}
 		})
+	}
+}
+
+func TestADryRunSendsTheSameRequestMarkedAsADryRun(t *testing.T) {
+	for _, argv := range mutatingCommands {
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			applied := fleet(t, append(append([]string{}, argv...), "--apply")...).onlyMutation(t)
+			checked := fleet(t, argv...).onlyDryRun(t).adminRequest
+			if len(checked.Query) != 1 {
+				t.Fatalf("query %+v", checked.Query)
+			}
+			checked.Query = nil
+			if !reflect.DeepEqual(checked, applied) {
+				t.Fatalf("checked %+v, applied %+v", checked, applied)
+			}
+		})
+	}
+}
+
+func TestADryRunPrintsWhatTheAdminAPIWouldDo(t *testing.T) {
+	run := fleet(t, "gateway", "restart", "shared-a")
+	expectRead(t, run)
+	expectContains(t, run.stdout, "POST /api/admin/gateways/shared-a/restart\n")
+	expectContains(t, run.stdout, "dry run: the Admin API would change the fleet")
+	expectContains(t, run.stdout, "target: path=/gateways/shared-a/restart")
+	expectContains(t, run.stdout, "current state: desiredRelease=3 desiredStatus=running")
+	expectContains(t, run.stdout, "pass --apply to send this request")
+}
+
+func TestADryRunKeepsTheRequestsOwnQuery(t *testing.T) {
+	checked := fleet(t, "gateway", "retire", "shared-b", "--retain-data").onlyDryRun(t)
+	want := map[string]string{"retainData": "true", "dryRun": "true"}
+	if !reflect.DeepEqual(checked.Query, want) {
+		t.Fatalf("query %+v, want %+v", checked.Query, want)
+	}
+}
+
+func TestADryRunDoesNotSpendTheIdempotencyKey(t *testing.T) {
+	checked := fleet(t, "gateway", "restart", "shared-a", "--idempotency-key=restart-1").onlyDryRun(t)
+	if checked.idempotencyKey != "" {
+		t.Fatalf("the dry run carried idempotency key %q", checked.idempotencyKey)
+	}
+}
+
+func TestADryRunTheAdminAPIRefusesExitsNonZero(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{refuseDryRunWith: http.StatusConflict}, "gateway", "restart", "shared-a")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "would refuse this request (409): gateway has a current retirement claim")
+}
+
+func TestNoDryRunIsSentToAnAdminAPIThatDoesNotAnswerThem(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{withoutDryRuns: true}, "gateway", "restart", "shared-a")
+	expectRead(t, run)
+	if sent := run.dryRuns(); len(sent) != 0 {
+		t.Fatalf("sent a dry run to a server that would apply it: %+v", sent)
+	}
+	expectContains(t, run.stdout, "does not answer dry runs")
+	expectContains(t, run.stdout, "pass --apply to send this request")
+}
+
+func TestAnAnswerThatIsNotAPlanFailsLoudly(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{appliesDryRuns: true}, "gateway", "restart", "shared-a")
+	if run.exit == 0 {
+		t.Fatalf("expected a non-zero exit: stdout=%s", run.stdout)
+	}
+	expectContains(t, run.stderr, "may have been applied")
+	expectContains(t, run.stderr, "op-recorded")
+}
+
+func TestADryRunAnswerWithoutAPlanFailsLoudly(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{plansNothing: true}, "gateway", "restart", "shared-a")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "without saying what it would do")
+}
+
+func TestADryRunOfAForcedRequestSaysSo(t *testing.T) {
+	run := fleet(t, "gateway", "replace-vm", "iso-grace", "--force", "--accept-boot-data-loss")
+	expectRead(t, run)
+	expectContains(t, run.stdout, "BREAK GLASS")
+	expectContains(t, run.stdout, "forced: yes")
+}
+
+func TestOfflinePrintsTheRequestWithoutAskingTheAdminAPI(t *testing.T) {
+	run := fleet(t, "gateway", "restart", "shared-a", "--offline")
+	expectRead(t, run)
+	if sent := run.dryRuns(); len(sent) != 0 {
+		t.Fatalf("--offline sent a dry run: %+v", sent)
+	}
+	expectContains(t, run.stdout, "POST /api/admin/gateways/shared-a/restart\n")
+	expectContains(t, run.stdout, "dry run: pass --apply to send this request")
+}
+
+func TestOfflineCannotBeCombinedWithApply(t *testing.T) {
+	expectNothingSent(t, fleet(t, "gateway", "restart", "shared-a", "--offline", "--apply"))
+}
+
+func TestApplySendsNoDryRun(t *testing.T) {
+	run := fleet(t, "gateway", "restart", "shared-a", "--apply")
+	if sent := run.dryRuns(); len(sent) != 0 {
+		t.Fatalf("--apply also sent a dry run: %+v", sent)
 	}
 }
 

@@ -24,9 +24,12 @@ The platform runs OpenClaw gateways for its users:
 - **`--env=<name>` is required.** Names come from the operator's configuration; none are built in.
 - **The Admin API is the only boundary.** `octogee-fleet` needs no database, cluster or cloud credentials, and starts no process except an environment's `tokenCommand`.
 - **Identity is OpenID Connect.** Every request carries the ID token from the operator's sign-in, or the one an environment's `tokenCommand` prints. `octogee-fleet` renews an expired session and never mints or verifies tokens; the Admin API verifies each one.
-- **Reads come first, then at most one mutating request.** A token the Admin API rejects stops the command before any mutation.
+- **Reads come first, then at most one mutating request, or one dry run of it.** A token the Admin API rejects stops the command before any mutation.
 - **Mechanism, not policy.** Users move one at a time with `user migrate`. `octogee-fleet` does not decide when to add or retire shared gateways or when to rebalance users, and it has no commands for automated or advanced recovery of a gateway stuck mid-move; those belong to whatever you run on top of the platform.
-- **Dry run by default.** A mutating command prints the request it would send. A bare `--apply` sends it.
+- **Dry run by default.** Without `--apply`, a mutating command prints the request it would send, then sends it to the Admin API marked `dryRun=true`. The Admin API runs the checks it makes before admitting the change and answers with what it would do, or with the refusal `--apply` would get. Nothing is changed, and a refusal exits non-zero. A bare `--apply` sends the request for real.
+- **A dry run is not a guarantee.** It does not predict checks the Admin API makes while it applies a change, such as a lease's id and generation, capacity, or a conflicting change that lands first. It does not predict failures later in the operation either. `user lease cancel`, `user lease return`, `user unassign` and the `replace-vm` commands are checked only for a well-formed request.
+- **`--offline`** prints the request without sending a dry run. The command's reads still run. It cannot be combined with `--apply`.
+- **An Admin API that does not answer dry runs is never sent one.** Such a server would ignore the marker and apply the request, so `octogee-fleet` sends a dry run only after a read in the same command showed that the server supports it. Otherwise it prints the request and says that it was not checked.
 - **`--idempotency-key=<key>`** becomes the request's `Idempotency-Key` header. A retried command with the same key changes nothing twice.
 - **Applied mutations are journaled.** The command prints the operation id the Admin API returns.
 - **Break glass takes two flags.** Replacing a VM in a way that loses boot-disk data needs `--force --accept-boot-data-loss`; either flag alone is refused.
