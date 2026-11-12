@@ -99,7 +99,7 @@ Run `octogee-fleet help` for the command list, `octogee-fleet help <command>` or
 
 ### Output
 
-At a terminal, output is coloured, with `✓`, `⚠` and `●` marks and times such as `3m ago`. Piped output is plain text with the same columns. Set `NO_COLOR` or pass `--no-color` to drop the colour; set `FORCE_COLOR` or `CLICOLOR_FORCE` to keep it when piping.
+At a terminal, output is coloured, with `✓`, `⚠` and `●` marks and times such as `3m ago`. Piped output has the same columns as plain text, with absolute times and no spaces inside a cell where it can avoid them. Set `NO_COLOR` or pass `--no-color` to drop the colour; set `FORCE_COLOR` or `CLICOLOR_FORCE` to keep the terminal output when piping.
 
 Every command that prints data takes `--format=json`. Reads print the Admin API's response, with absolute times. A mutation prints its request with the dry run's plans, or with the Admin API's response once applied. JSON is never coloured, and warnings go to stderr.
 

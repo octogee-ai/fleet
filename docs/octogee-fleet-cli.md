@@ -34,7 +34,10 @@ The platform runs OpenClaw gateways for its users:
 - **Break glass takes two flags.** Replacing a VM in a way that loses boot-disk data needs `--force --accept-boot-data-loss`; either flag alone is refused.
 - **Refusals send no mutation and exit non-zero.** That covers an unknown command, an unknown or repeated flag, an unknown user or gateway, and a malformed commit sha. Flags are written `--name=value` or `--name`. A mistyped command or flag gets a suggestion.
 - **Errors name the status and the server's code.** A `403` is reported as not permitted, with the Admin API's code, rather than as a rejected sign-in. Each error says what to try next.
-- **Text for people, JSON for scripts.** At a terminal, text is coloured, states carry marks, and times are relative. Piped text is plain with the same columns. `NO_COLOR` or `--no-color` drops the colour; `FORCE_COLOR` or `CLICOLOR_FORCE` keeps it when piped. Every command that prints data takes `--format=json`: a read prints the Admin API's response with absolute times, and a mutation prints `{"dryRun", "checked", "request", "plans"}` for a dry run or `{"dryRun": false, "request", "response"}` once applied. A change already in place prints `{"unchanged": true, "reason"}`. JSON is never decorated, and warnings go to stderr.
+- **Text for people, JSON for scripts.** At a terminal, text is coloured, states carry marks, and times are relative. Piped text has the same columns without colour or marks, prints times as absolute RFC 3339 in UTC, and keeps each cell free of spaces where it can: a VM state reads `suspended(idle)` and an audit's kind reads `update-gateway-desired-configuration`. `NO_COLOR` or `--no-color` drops the colour; `FORCE_COLOR` or `CLICOLOR_FORCE` keeps the terminal output when piped. Every command that prints data takes `--format=json`: a read prints the Admin API's response with absolute times, and a mutation prints `{"dryRun", "checked", "request", "plans"}` for a dry run or `{"dryRun": false, "request", "response"}` once applied. A change already in place prints `{"unchanged": true, "reason"}`. JSON is never decorated, and warnings go to stderr.
+- **Text from the Admin API cannot drive the terminal.** In text output, control characters in any string the Admin API returns, such as an escape, are printed as visible escapes like `\x1b`. JSON output carries the strings as the Admin API sent them.
+- **A field shown only for reading never blocks a command.** A display field the command cannot read is shown as it arrived, or as `?`. Only the fields a command acts on, such as a gateway's id, class, desired status and owner, must be well formed.
+- **A read that could not finish exits non-zero.** `gateway ls` and `user inspect` read each isolated gateway's VM state, four at a time. If one of those reads fails, or the command is interrupted, they print what they read with a warning for each gateway they could not read, then exit non-zero with `could not read the VM state of N of M isolated gateways`.
 - **Help is built in.** `octogee-fleet help`, `octogee-fleet help <noun>` and `octogee-fleet help <command>` or `<command> --help` print the commands, flags and examples. `show` is an alias of `inspect`.
 - **`<user>`** is a user's name or id. **`<gateway>`** is a gateway id. `gw` is short for `gateway`.
 
@@ -98,3 +101,31 @@ A shared gateway stays on the build it was added on, and the Admin API refuses `
 | Command | What it does | Request |
 | --- | --- | --- |
 | `completion bash\|fish\|zsh` | Prints a completion script for commands and flags. It needs no `--env`. | None |
+
+## JSON output
+
+With `--format=json`, each read prints one JSON document on stdout:
+
+| Command | Prints |
+| --- | --- |
+| `gateway ls` | `{"gateways": [summary]}`, the Admin API's gateway summaries. It reads no VM states. |
+| `gateway inspect` | `{"gateway": summary, "details": details}` |
+| `gateway releases` | The Admin API's response |
+| `user ls` | `{"users": [user]}`, the Admin API's placement records, filtered by `--gateway` |
+| `user inspect` | `{"user": user, "isolatedGateways": [{"gateway": summary, "vm": vm}], "errors": [{"gatewayId", "error"}]}`. `vm` is the details' `control.vm`, or `null` when it could not be read, and `errors` says why. |
+| `user broker` | The Admin API's broker diagnostics |
+| `ops ls` | The Admin API's response: `{"operations", "generatedAt"}` |
+| `ops inspect` | The Admin API's response: `{"operation": operation}` |
+| `builds ls` | The Admin API's response: `{"service", "builds": [{"tag", "pushedAt", "digest"}], "generatedAt"}` |
+| `release status` | The Admin API's response: `{"summary", "defaultGatewayId", "defaultSelection", "gateways"}` |
+| `logs` | One JSON log entry per line |
+
+Three reads printed JSON of a different shape before `--format` existed, when they printed JSON by default:
+
+| Command | Before | Now |
+| --- | --- | --- |
+| `ops inspect` | The operation object alone | `{"operation": operation}` |
+| `builds ls` | The `builds` array alone | `{"service", "builds", "generatedAt"}` |
+| `user inspect` | `{"id", "name", "assignedGatewayId", "mountedGatewayId", "provisioningStatus", "driftState"}`, followed by a line of text when the user drifted | `{"user", "isolatedGateways", "errors"}`, where `user` is the whole placement record, `driftState` included |
+
+`gateway inspect` and `user broker` keep their shapes. All five now print text unless `--format=json` is given.
