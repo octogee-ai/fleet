@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -16,7 +15,6 @@ var platformCommands = []*command{
 	{path: words("ops inspect"), usage: "<operation>", argc: 1, summary: "Show one operation's steps and outcome.", run: opsInspect},
 	{path: words("builds ls"), usage: "[--service=<service>] [--limit=<n>]", summary: "List builds.", flags: flagSet{"service": valueFlag, "limit": valueFlag}, run: buildsList},
 	{path: words("release status"), summary: "Show release convergence across the fleet.", run: releaseStatus},
-	{path: words("pool show"), summary: "Show the shared-gateway placement pool.", run: poolShow},
 	{path: words("logs"), usage: "[--level=<level>] [--service=<names>] [--user=<names>] [--migration=<id>] [--gateway=<gateway>] [--since=<age>] [--no-follow] [--format=text|json]", summary: "Tail shared-gateway and VM-gateway logs together.", flags: flagSet{"level": valueFlag, "service": valueFlag, "user": valueFlag, "migration": valueFlag, "gateway": valueFlag, "since": valueFlag, "no-follow": bareFlag, "format": valueFlag}, run: logs},
 }
 
@@ -117,25 +115,6 @@ func release(value *int) string {
 		return "-"
 	}
 	return strconv.Itoa(*value)
-}
-
-func poolShow(i *invocation) error {
-	directory, err := i.placement()
-	if err != nil {
-		return err
-	}
-	config := directory.Config
-	fmt.Fprintf(i.out, "default gateway: %s\n", dash(config.DefaultGatewayID))
-	fmt.Fprintf(i.out, "shared pool: %s\n", dash(strings.Join(config.SharedGatewayIDs, ", ")))
-	rows := make([][]string, 0, len(directory.Gateways))
-	for _, gateway := range directory.Gateways {
-		rows = append(rows, []string{
-			gateway.GatewayID, dash(gateway.GatewayClass), dash(gateway.DesiredStatus),
-			strconv.Itoa(gateway.AssignedCount), strconv.Itoa(gateway.MountedCount), strconv.Itoa(gateway.DriftCount),
-		})
-	}
-	i.table([]string{"gateway", "class", "desired", "assigned", "mounted", "mismatched"}, rows, "no gateways")
-	return nil
 }
 
 func logs(i *invocation) error {

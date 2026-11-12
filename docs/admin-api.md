@@ -76,19 +76,6 @@ A shared gateway added this way belongs to the operator: no automation replaces,
 
 ```json
 {
-  "config": {
-    "defaultGatewayId": "shared-a",
-    "sharedGatewayIds": ["shared-a"],
-    "sharedGatewayAutoscaling": { "enabled": true, "usersPerGateway": 40 }
-  },
-  "gateways": [{
-    "gatewayId": "shared-a",
-    "gatewayClass": "shared",
-    "desiredStatus": "running",
-    "assignedCount": 1,
-    "mountedCount": 1,
-    "driftCount": 0
-  }],
   "users": [{
     "id": "u-ada",
     "name": "ada",

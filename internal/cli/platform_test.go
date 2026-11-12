@@ -40,15 +40,6 @@ func TestBuildsListFiltersByServiceAndLimit(t *testing.T) {
 	}
 }
 
-func TestPoolShowReadsPlacement(t *testing.T) {
-	run := fleet(t, "pool", "show")
-	expectRead(t, run)
-	if !run.containsRequest(adminRequest{Method: http.MethodGet, Path: "/api/admin/placement"}) {
-		t.Fatalf("requests %+v", run.requests)
-	}
-	expectContains(t, run.stdout, "shared-a, shared-b")
-}
-
 func TestReleaseStatusIsReadOnly(t *testing.T) {
 	run := fleet(t, "release", "status")
 	expectRead(t, run)

@@ -37,22 +37,8 @@ type placedUser struct {
 	DriftState         string `json:"driftState"`
 }
 
-type placementGateway struct {
-	GatewayID     string `json:"gatewayId"`
-	GatewayClass  string `json:"gatewayClass"`
-	DesiredStatus string `json:"desiredStatus"`
-	AssignedCount int    `json:"assignedCount"`
-	MountedCount  int    `json:"mountedCount"`
-	DriftCount    int    `json:"driftCount"`
-}
-
 type placement struct {
-	Config struct {
-		DefaultGatewayID string   `json:"defaultGatewayId"`
-		SharedGatewayIDs []string `json:"sharedGatewayIds"`
-	} `json:"config"`
-	Gateways []placementGateway `json:"gateways"`
-	Users    []placedUser       `json:"users"`
+	Users []placedUser `json:"users"`
 }
 
 func (i *invocation) gateways(all bool) ([]gatewaySummary, error) {

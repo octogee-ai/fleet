@@ -88,5 +88,4 @@ A shared gateway stays on the build it was added on, and the Admin API refuses `
 | `ops inspect <operation>` | Shows one operation's steps and failure reason | `GET /operations/<operation>` |
 | `builds ls [--service=] [--limit=]` | Lists builds | `GET /builds` |
 | `release status` | Shows release convergence across the fleet | `GET /release-status` |
-| `pool show` | Shows the shared-gateway placement pool | `GET /placement` |
 | `logs [--level=] [--service=] [--user=] [--migration=] [--gateway=] [--since=] [--no-follow] [--format=text\|json]` | Tails shared-gateway and VM-gateway logs together | `GET /logs` |
