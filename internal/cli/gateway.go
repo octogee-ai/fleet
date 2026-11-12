@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -98,15 +99,40 @@ func gatewayList(i *invocation) error {
 	if i.json {
 		return i.printJSON(map[string]any{"gateways": recordsOf(gateways, func(g gatewaySummary) json.RawMessage { return g.record })})
 	}
+	vms := i.vmStates(gateways)
 	rows := make([][]string, 0, len(gateways))
 	for _, gateway := range gateways {
 		rows = append(rows, []string{
 			i.style.bold(gateway.GatewayID), dash(gateway.GatewayClass), i.style.state(gateway.DesiredStatus), i.style.state(gateway.Status),
-			dash(gateway.ImageTag), strconv.Itoa(len(gateway.MountedUsers)), i.ago(gateway.LastHeartbeatAt),
+			vms[gateway.GatewayID], dash(gateway.ImageTag), strconv.Itoa(len(gateway.MountedUsers)), i.ago(gateway.LastHeartbeatAt),
 		})
 	}
-	i.table([]string{"gateway", "class", "desired", "status", "image", "mounted", "heartbeat"}, rows, "no gateways")
+	i.table([]string{"gateway", "class", "desired", "status", "vm", "image", "mounted", "heartbeat"}, rows, "no gateways")
 	return nil
+}
+
+// vmStates reads the VM state of every isolated gateway that is not retired.
+// A gateway whose state could not be read shows unknown, with a warning.
+func (i *invocation) vmStates(gateways []gatewaySummary) map[string]string {
+	states := map[string]string{}
+	var isolated []gatewaySummary
+	for _, gateway := range gateways {
+		states[gateway.GatewayID] = "-"
+		if gateway.isolated() && gateway.DesiredStatus != statusRetired {
+			isolated = append(isolated, gateway)
+		}
+	}
+	details, failures := i.detailsOf(isolated)
+	for index, gateway := range isolated {
+		if failures[index] != nil {
+			states[gateway.GatewayID] = i.style.dim("unknown")
+			i.notice(fmt.Sprintf("could not read the VM state of %s: %v", gateway.GatewayID, failures[index]))
+			continue
+		}
+		vm := details[index].Control.VM
+		states[gateway.GatewayID] = i.style.toned(vm.tone(), vm.state())
+	}
+	return states
 }
 
 func gatewayInspect(i *invocation) error {
@@ -118,11 +144,70 @@ func gatewayInspect(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	details, err := i.read(admin.Path("gateways", gateway.GatewayID, "details"), nil, nil)
+	details, err := i.details(gateway.GatewayID)
 	if err != nil {
 		return err
 	}
-	return i.printJSON(map[string]any{"gateway": gateway.record, "details": details})
+	if i.json {
+		return i.printJSON(map[string]any{"gateway": gateway.record, "details": details.record})
+	}
+	i.line(i.style.bold(gateway.GatewayID) + "  " + dash(gateway.GatewayClass) + " gateway")
+	image := dash(gateway.ImageTag)
+	if gateway.OpenclawVersion != "" {
+		image += " " + i.style.dim("(OpenClaw "+gateway.OpenclawVersion+")")
+	}
+	vm := ""
+	if gateway.isolated() {
+		vm = i.style.toned(details.Control.VM.tone(), details.Control.VM.state())
+		if machine := details.Control.VM; machine != nil {
+			vm += " " + i.style.dim(strings.TrimSpace(machine.InstanceName+" "+machine.Zone+" "+strings.ToLower(machine.ProvisioningModel)))
+		}
+	}
+	lastError := ""
+	if gateway.LastError != nil && gateway.LastError.Message != "" {
+		lastError = i.style.red(gateway.LastError.Message)
+	}
+	i.fields([]field{
+		{"desired", i.style.dot(gateway.DesiredStatus)},
+		{"status", i.style.state(gateway.Status)},
+		{"image", image},
+		{"release", fmt.Sprintf("desired %s, live %s", release(details.Control.DesiredRelease), release(details.Control.LiveRelease))},
+		{"sizing", details.Control.SizingTier},
+		{"owner", gateway.OwnerID},
+		{"vm", vm},
+		{"heartbeat", i.stamp(gateway.LastHeartbeatAt)},
+		{"pods", i.pods(gateway)},
+		{"last error", lastError},
+	})
+	i.heading("Mounted users")
+	users := make([][]string, 0, len(details.MountedUsers))
+	for _, user := range details.MountedUsers {
+		users = append(users, []string{i.style.bold(dash(user.Username)), i.style.dim(user.UID), dash(user.Email), i.ago(user.LastActive)})
+	}
+	i.table([]string{"user", "id", "email", "active"}, users, "no mounted users")
+	i.heading("Recent operations")
+	operations := make([][]string, 0, len(details.RecentOperations))
+	for _, operation := range details.RecentOperations {
+		operations = append(operations, []string{i.style.bold(operation.ID), operation.label(), i.style.state(operation.Status), dash(operation.CreatedBy), i.ago(operation.CreatedAt)})
+	}
+	i.table([]string{"id", "kind", "status", "by", "created"}, operations, "no recent operations")
+	return nil
+}
+
+// pods is each pod with whether it is ready.
+func (i *invocation) pods(gateway gatewaySummary) string {
+	if gateway.PodDiagnostics == nil {
+		return ""
+	}
+	pods := make([]string, 0, len(gateway.PodDiagnostics.Pods))
+	for _, pod := range gateway.PodDiagnostics.Pods {
+		ready := "not ready"
+		if pod.Ready {
+			ready = "ready"
+		}
+		pods = append(pods, pod.Name+" "+i.style.state(ready))
+	}
+	return strings.Join(pods, ", ")
 }
 
 func gatewayAdd(i *invocation) error {

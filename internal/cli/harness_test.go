@@ -53,6 +53,7 @@ type fixtureUser struct {
 type fixtureGateway struct {
 	id, class, desired, owner string
 	mounted                   []string
+	vm, stopReason            string
 }
 
 type fleetFixture struct {
@@ -71,7 +72,7 @@ var fixture = fleetFixture{
 	gateways: []fixtureGateway{
 		{id: "shared-a", class: "shared", desired: "running", mounted: []string{"u-ada"}},
 		{id: "shared-b", class: "shared", desired: "running"},
-		{id: "iso-grace", class: "isolated", desired: "running", owner: "u-grace", mounted: []string{"u-grace"}},
+		{id: "iso-grace", class: "isolated", desired: "running", owner: "u-grace", mounted: []string{"u-grace"}, vm: "SUSPENDED", stopReason: "idle"},
 		{id: "shared-parked", class: "shared", desired: "paused"},
 	},
 }
@@ -105,6 +106,7 @@ type runOptions struct {
 	env              map[string]string
 	errorCode        string
 	refuseApplyWith  int
+	detailsFailWith  int
 }
 
 type fleetRun struct {
@@ -336,13 +338,57 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 	case path == "logs":
 		fmt.Fprintln(w, `{"timestamp":"2026-11-10T00:00:00Z","severity":"WARNING","service":"api","message":"a line from the log stream"}`)
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "details":
-		writeJSON(w, http.StatusOK, map[string]any{"recentOperations": []any{}})
+		s.serveDetails(w, segments[1])
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "releases":
 		writeJSON(w, http.StatusOK, map[string]any{"releases": []map[string]any{{"release": 3, "imageTag": "v42", "live": true, "desired": true}}})
 	case len(segments) == 3 && segments[0] == "users" && segments[2] == "broker-diagnostics":
 		writeJSON(w, http.StatusOK, map[string]any{"windows": []any{}})
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no route: " + path})
+	}
+}
+
+func (s *adminStub) serveDetails(w http.ResponseWriter, id string) {
+	if s.options.detailsFailWith != 0 {
+		writeJSON(w, s.options.detailsFailWith, s.refusal("details are unavailable"))
+		return
+	}
+	for _, gateway := range s.fixture.gateways {
+		if gateway.id == id {
+			writeJSON(w, http.StatusOK, s.details(gateway))
+			return
+		}
+	}
+	writeJSON(w, http.StatusNotFound, map[string]any{"error": "Gateway not found", "gatewayId": id})
+}
+
+func (s *adminStub) details(gateway fixtureGateway) map[string]any {
+	mounted := make([]map[string]any, 0, len(gateway.mounted))
+	for _, uid := range gateway.mounted {
+		for _, user := range s.fixture.users {
+			if user.id == uid {
+				mounted = append(mounted, map[string]any{"uid": uid, "slug": user.name, "username": user.name, "email": user.name + "@example.test", "lastActive": "2026-11-09T23:05:00Z"})
+			}
+		}
+	}
+	var vm any
+	if gateway.vm != "" {
+		vm = map[string]any{
+			"instanceName": "vm-" + gateway.id, "zone": "zone-a", "instanceId": "42", "internalIp": "10.0.0.9",
+			"status": gateway.vm, "startedAt": minutesAgo(90), "provisioningModel": "SPOT",
+			"stopReason": nullable(gateway.stopReason), "updatedAt": minutesAgo(30),
+		}
+	}
+	return map[string]any{
+		"mountedUsers": mounted,
+		"recentOperations": []map[string]any{
+			{"id": "op-9", "kind": "restart", "status": "completed", "createdBy": "operator@example.test", "createdAt": minutesAgo(20)},
+		},
+		"control": map[string]any{
+			"desiredStatus": gateway.desired, "desiredRelease": 3, "liveRelease": 3,
+			"gatewayClass": gateway.class, "ownerUid": nullable(gateway.owner), "vm": vm,
+		},
+		"generatedAt": "2026-11-10T00:05:00Z",
 	}
 }
 

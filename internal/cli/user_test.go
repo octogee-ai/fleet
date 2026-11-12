@@ -183,6 +183,38 @@ func TestUserInspectIsReadOnly(t *testing.T) {
 	expectContains(t, run.stdout, "iso-grace")
 }
 
+func TestUserInspectShowsTheUsersIsolatedGatewayAndItsVM(t *testing.T) {
+	run := fleet(t, "user", "inspect", "grace")
+	if strings.HasPrefix(strings.TrimSpace(run.stdout), "{") {
+		t.Fatalf("expected fields, not JSON:\n%s", run.stdout)
+	}
+	row := lineWith(t, run.stdout, "isolated gateway")
+	expectContains(t, row, "iso-grace")
+	expectContains(t, row, "suspended (idle)")
+}
+
+func TestUserInspectOfAUserWithoutAnIsolatedGatewayReadsNoDetails(t *testing.T) {
+	run := fleet(t, "user", "inspect", "ada")
+	expectRead(t, run)
+	expectContains(t, lineWith(t, run.stdout, "gateway"), "shared-a")
+	if strings.Contains(run.stdout, "isolated gateway") {
+		t.Fatalf("ada has no isolated gateway:\n%s", run.stdout)
+	}
+	for _, request := range run.requests {
+		if strings.HasSuffix(request.Path, "/details") {
+			t.Fatalf("read details: %+v", run.requests)
+		}
+	}
+}
+
+func TestUserInspectInJSONCarriesTheIsolatedGateway(t *testing.T) {
+	document := decodeJSON(t, fleet(t, "user", "inspect", "grace", "--format=json"))
+	gateways := document["isolatedGateways"].([]any)
+	if len(gateways) != 1 || gateways[0].(map[string]any)["vm"].(map[string]any)["status"] != "SUSPENDED" {
+		t.Fatalf("document %+v", document)
+	}
+}
+
 func TestUserBrokerIsReadOnly(t *testing.T) {
 	run := fleet(t, "user", "broker", "ada")
 	expectRead(t, run)

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
+	"sync"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -12,6 +14,7 @@ const (
 	classIsolated  = "isolated"
 	statusRunning  = "running"
 	statusPaused   = "paused"
+	statusRetired  = "retired"
 	driftHealthy   = "healthy"
 	driftInFlight  = "in-flight"
 	driftUnmounted = "assigned-not-mounted"
@@ -28,8 +31,112 @@ type gatewaySummary struct {
 	MountedUsers    []string `json:"mountedUsers"`
 	LastHeartbeatAt instant  `json:"lastHeartbeatAt"`
 	OwnerID         string   `json:"ownerId"`
+	LastError       *struct {
+		Message string `json:"message"`
+	} `json:"lastError"`
+	PodDiagnostics *struct {
+		Pods []struct {
+			Name  string `json:"name"`
+			Ready bool   `json:"ready"`
+		} `json:"pods"`
+	} `json:"podDiagnostics"`
 
 	record json.RawMessage
+}
+
+// isolated reports whether the gateway serves one user on its own VM.
+func (g gatewaySummary) isolated() bool { return g.GatewayClass == classIsolated }
+
+// vmState is an isolated gateway's VM as the platform last saw it.
+type vmState struct {
+	InstanceName      string  `json:"instanceName"`
+	Zone              string  `json:"zone"`
+	Status            string  `json:"status"`
+	StopReason        string  `json:"stopReason"`
+	ProvisioningModel string  `json:"provisioningModel"`
+	StartedAt         instant `json:"startedAt"`
+	UpdatedAt         instant `json:"updatedAt"`
+}
+
+// state is the VM's status in lower case, with why it stopped if it did.
+func (v *vmState) state() string {
+	if v == nil {
+		return "none"
+	}
+	status := strings.ToLower(v.Status)
+	if status == "" {
+		status = "unknown"
+	}
+	if v.StopReason != "" && status != "running" {
+		status += " (" + v.StopReason + ")"
+	}
+	return status
+}
+
+func (v *vmState) tone() tone {
+	if v == nil {
+		return toneMuted
+	}
+	return toneOf(v.Status)
+}
+
+type gatewayDetails struct {
+	MountedUsers []struct {
+		UID        string  `json:"uid"`
+		Username   string  `json:"username"`
+		Email      string  `json:"email"`
+		LastActive instant `json:"lastActive"`
+	} `json:"mountedUsers"`
+	RecentOperations []operationView `json:"recentOperations"`
+	Control          struct {
+		DesiredRelease *int     `json:"desiredRelease"`
+		LiveRelease    *int     `json:"liveRelease"`
+		SizingTier     string   `json:"sizingTier"`
+		VM             *vmState `json:"vm"`
+	} `json:"control"`
+
+	record   json.RawMessage
+	vmRecord json.RawMessage
+}
+
+func (i *invocation) details(id string) (gatewayDetails, error) {
+	var details gatewayDetails
+	raw, err := i.read(admin.Path("gateways", id, "details"), nil, &details)
+	if err != nil {
+		return details, err
+	}
+	var control struct {
+		Control struct {
+			VM json.RawMessage `json:"vm"`
+		} `json:"control"`
+	}
+	if err := json.Unmarshal(raw, &control); err != nil {
+		return details, fmt.Errorf("decode the details of %s: %w", id, err)
+	}
+	details.record, details.vmRecord = raw, control.Control.VM
+	return details, nil
+}
+
+// detailsReads bounds how many gateway details are read at once.
+const detailsReads = 8
+
+// detailsOf reads the details of each gateway at once, a few at a time.
+func (i *invocation) detailsOf(gateways []gatewaySummary) ([]gatewayDetails, []error) {
+	details := make([]gatewayDetails, len(gateways))
+	failures := make([]error, len(gateways))
+	slots := make(chan struct{}, detailsReads)
+	var group sync.WaitGroup
+	for index, gateway := range gateways {
+		group.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer group.Done()
+			defer func() { <-slots }()
+			details[index], failures[index] = i.details(gateway.GatewayID)
+		}()
+	}
+	group.Wait()
+	return details, failures
 }
 
 type placedUser struct {
@@ -39,6 +146,12 @@ type placedUser struct {
 	MountedGatewayID   string `json:"mountedGatewayId"`
 	ProvisioningStatus string `json:"provisioningStatus"`
 	DriftState         string `json:"driftState"`
+	Email              string `json:"email"`
+	LatestOperation    *struct {
+		ID     string `json:"id"`
+		Kind   string `json:"kind"`
+		Status string `json:"status"`
+	} `json:"latestOperation"`
 
 	record json.RawMessage
 }

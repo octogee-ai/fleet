@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -103,21 +104,29 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("the Admin API returned %s: %s", e.Label(), e.Message)
 }
 
-// Client calls one environment's Admin API as the operator.
+// Client calls one environment's Admin API as the operator. It is safe for
+// concurrent reads.
 type Client struct {
 	Origin string
 	HTTP   Doer
 	Token  func(context.Context) (string, error)
 
+	mutex        sync.Mutex
 	token        string
 	capabilities map[string]bool
 }
 
 // Supports reports whether a response so far advertised the capability. An
 // Admin API that does not know a capability ignores its request marker.
-func (c *Client) Supports(capability string) bool { return c.capabilities[capability] }
+func (c *Client) Supports(capability string) bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.capabilities[capability]
+}
 
 func (c *Client) observe(header http.Header) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	for _, value := range header.Values(capabilitiesHeader) {
 		for _, name := range strings.Split(value, ",") {
 			if name = strings.TrimSpace(name); name != "" {
@@ -230,6 +239,8 @@ func (c *Client) build(ctx context.Context, request Request) (*http.Request, err
 }
 
 func (c *Client) bearer(ctx context.Context) (string, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	if c.token != "" {
 		return c.token, nil
 	}

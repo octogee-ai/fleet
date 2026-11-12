@@ -24,9 +24,10 @@ type spinner struct {
 	out   io.Writer
 	style palette
 
-	mutex sync.Mutex
-	stop  chan struct{}
-	done  chan struct{}
+	mutex   sync.Mutex
+	waiting int
+	stop    chan struct{}
+	done    chan struct{}
 }
 
 func newSpinner(runtime Runtime, style palette) *spinner {
@@ -42,7 +43,8 @@ func (s *spinner) start(label string) {
 	}
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if s.stop != nil {
+	s.waiting++
+	if s.waiting > 1 {
 		return
 	}
 	s.stop, s.done = make(chan struct{}), make(chan struct{})
@@ -55,7 +57,8 @@ func (s *spinner) end() {
 	}
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if s.stop == nil {
+	s.waiting--
+	if s.waiting > 0 || s.stop == nil {
 		return
 	}
 	close(s.stop)

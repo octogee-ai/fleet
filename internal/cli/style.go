@@ -79,6 +79,7 @@ func init() {
 	for _, word := range words("failed refused error rolled-back critical alert emergency unhealthy invalid assigned-not-mounted mounted-orphan pointer-drift missing-gateway blocked") {
 		tones[word] = toneBad
 	}
+	tones["not ready"] = toneBad
 	for _, word := range words("retired unknown none false - default debug info") {
 		tones[word] = toneMuted
 	}

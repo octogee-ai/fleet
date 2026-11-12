@@ -152,6 +152,49 @@ func TestGatewayInspectShowsPodsAndLastError(t *testing.T) {
 	expectContains(t, run.stdout, "ensure failed on iso-grace")
 }
 
+func TestGatewayListShowsTheVMStateOfIsolatedGateways(t *testing.T) {
+	run := fleet(t, "gateway", "ls")
+	expectRead(t, run)
+	expectContains(t, run.stdout, "VM")
+	expectContains(t, lineWith(t, run.stdout, "iso-grace"), "suspended (idle)")
+	if strings.Contains(lineWith(t, run.stdout, "shared-a"), "suspended") {
+		t.Fatalf("a shared gateway has no VM:\n%s", run.stdout)
+	}
+	if !run.containsRequest(adminRequest{Method: http.MethodGet, Path: "/api/admin/gateways/iso-grace/details"}) {
+		t.Fatalf("requests %+v", run.requests)
+	}
+	if run.containsRequest(adminRequest{Method: http.MethodGet, Path: "/api/admin/gateways/shared-a/details"}) {
+		t.Fatalf("read details of a shared gateway: %+v", run.requests)
+	}
+}
+
+func TestGatewayListSaysWhenAVMStateCouldNotBeRead(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{detailsFailWith: http.StatusInternalServerError}, "gateway", "ls")
+	if run.exit != 0 {
+		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	}
+	expectContains(t, lineWith(t, run.stdout, "iso-grace"), "unknown")
+	expectContains(t, run.stderr, "iso-grace")
+	expectContains(t, run.stderr, "details are unavailable")
+}
+
+func TestGatewayInspectShowsTheGatewayAsFields(t *testing.T) {
+	run := fleet(t, "gateway", "inspect", "iso-grace")
+	if strings.HasPrefix(strings.TrimSpace(run.stdout), "{") {
+		t.Fatalf("expected fields, not JSON:\n%s", run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "vm"), "suspended (idle)")
+	expectContains(t, lineWith(t, run.stdout, "owner"), "u-grace")
+	expectContains(t, lineWith(t, run.stdout, "grace@example.test"), "grace")
+	expectContains(t, lineWith(t, run.stdout, "op-9"), "restart")
+}
+
+func TestGatewayInspectOfAnUnknownGatewaySendsNoDetailsRead(t *testing.T) {
+	run := fleet(t, "gateway", "inspect", "nowhere")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, `unknown gateway "nowhere"`)
+}
+
 func TestGatewayReleasesIsReadOnly(t *testing.T) {
 	expectRead(t, fleet(t, "gateway", "releases", "shared-a"))
 }

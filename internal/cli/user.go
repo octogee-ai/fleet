@@ -118,12 +118,53 @@ func userInspect(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	if err := i.printJSON(map[string]any{"user": user.record}); err != nil {
+	gateways, err := i.gateways(false)
+	if err != nil {
 		return err
 	}
-	if i.json {
-		return nil
+	var owned []gatewaySummary
+	for _, gateway := range gateways {
+		if gateway.isolated() && gateway.OwnerID == user.ID {
+			owned = append(owned, gateway)
+		}
 	}
+	details, failures := i.detailsOf(owned)
+	for index, gateway := range owned {
+		if failures[index] != nil {
+			i.notice(fmt.Sprintf("could not read the VM state of %s: %v", gateway.GatewayID, failures[index]))
+		}
+	}
+	if i.json {
+		isolated := make([]map[string]any, 0, len(owned))
+		for index, gateway := range owned {
+			entry := map[string]any{"gateway": gateway.record}
+			if failures[index] == nil {
+				entry["vm"] = details[index].vmRecord
+			}
+			isolated = append(isolated, entry)
+		}
+		return i.printJSON(map[string]any{"user": user.record, "isolatedGateways": isolated})
+	}
+	i.line(i.style.bold(user.Name) + "  " + i.style.dim(user.ID))
+	userFields := []field{
+		{"email", user.Email},
+		{"gateway", dash(user.AssignedGatewayID)},
+		{"mounted on", dash(user.MountedGatewayID)},
+		{"provisioning", i.style.dot(user.ProvisioningStatus)},
+		{"placement", i.style.state(user.DriftState)},
+	}
+	for index, gateway := range owned {
+		vm := i.style.dim("unknown")
+		if failures[index] == nil {
+			machine := details[index].Control.VM
+			vm = i.style.toned(machine.tone(), machine.state())
+		}
+		userFields = append(userFields, field{"isolated gateway", fmt.Sprintf("%s %s, VM %s", i.style.bold(gateway.GatewayID), i.style.state(gateway.DesiredStatus), vm)})
+	}
+	if operation := user.LatestOperation; operation != nil {
+		userFields = append(userFields, field{"latest operation", fmt.Sprintf("%s %s %s", i.style.bold(operation.ID), operation.Kind, i.style.state(operation.Status))})
+	}
+	i.fields(userFields)
 	if line := user.drift(); line != "" {
 		i.warn(line)
 	}
