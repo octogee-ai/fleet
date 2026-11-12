@@ -26,6 +26,9 @@ type Runtime struct {
 	Sleep   func(context.Context, time.Duration) error
 	Now     func() time.Time
 	Version string
+
+	// historyLimit bounds how long logs --no-follow waits; zero means the default.
+	historyLimit time.Duration
 }
 
 // Run executes one command line and returns the process exit code.

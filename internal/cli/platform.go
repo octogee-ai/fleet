@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -248,35 +251,62 @@ func release(value *int) string {
 	return strconv.Itoa(*value)
 }
 
+// historyLimit is how long logs --no-follow waits for the Admin API to read
+// the history before it stops.
+const historyLimit = 2 * time.Minute
+
 func logs(i *invocation) error {
-	format := i.value("format")
 	query := url.Values{}
 	for _, name := range []string{"level", "service", "user", "migration", "gateway", "since"} {
 		if i.has(name) {
 			query.Set(name, i.value(name))
 		}
 	}
+	ctx, limit := i.ctx, time.Duration(0)
 	if i.has("no-follow") {
 		query.Set("follow", "false")
+		limit = i.runtime.historyLimit
+		if limit == 0 {
+			limit = historyLimit
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, limit)
+		defer cancel()
 	}
-	return i.admin.Stream(i.ctx, admin.Request{Method: http.MethodGet, Path: admin.Path("logs"), Query: query}, func(line []byte) error {
-		fmt.Fprintln(i.out, renderLogLine(line, format))
+	err := i.admin.Stream(ctx, admin.Request{Method: http.MethodGet, Path: admin.Path("logs"), Query: query}, func(line []byte) error {
+		i.logLine(line)
 		return nil
 	})
+	if errors.Is(err, context.DeadlineExceeded) && i.ctx.Err() == nil {
+		return fmt.Errorf("stopped after %s: the Admin API had not finished reading the history, so older entries may not have been read\nshorten --since or add a filter such as --gateway, --service or --level", limit)
+	}
+	return err
 }
 
-func renderLogLine(line []byte, format string) string {
-	if format == "json" {
-		return string(line)
+type logEntry struct {
+	Timestamp string `json:"timestamp"`
+	Severity  string `json:"severity"`
+	Service   string `json:"service"`
+	Message   string `json:"message"`
+	Details   struct {
+		Truncated bool `json:"truncated"`
+	} `json:"details"`
+}
+
+// logLine prints one line of the log stream. The Admin API marks a history it
+// did not read to the end with a truncated entry; that becomes a warning.
+func (i *invocation) logLine(line []byte) {
+	var entry logEntry
+	parsed := json.Unmarshal(line, &entry) == nil
+	if parsed && entry.Details.Truncated {
+		i.notice("older entries in this window were not read; shorten --since or add a filter")
 	}
-	var entry struct {
-		Timestamp string `json:"timestamp"`
-		Severity  string `json:"severity"`
-		Service   string `json:"service"`
-		Message   string `json:"message"`
+	switch {
+	case i.json:
+		i.line(string(line))
+	case !parsed:
+		i.line(string(line))
+	case !entry.Details.Truncated:
+		i.line(fmt.Sprintf("%s %s %s %s", i.style.dim(entry.Timestamp), i.style.toned(toneOf(entry.Severity), entry.Severity), i.style.cyan(entry.Service), entry.Message))
 	}
-	if err := json.Unmarshal(line, &entry); err != nil {
-		return string(line)
-	}
-	return fmt.Sprintf("%s %s %s %s", entry.Timestamp, entry.Severity, entry.Service, entry.Message)
 }

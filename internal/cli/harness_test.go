@@ -109,6 +109,9 @@ type runOptions struct {
 	errorCode        string
 	refuseApplyWith  int
 	detailsFailWith  int
+	logsHang         bool
+	logsTruncated    bool
+	historyLimit     time.Duration
 }
 
 type fleetRun struct {
@@ -228,6 +231,12 @@ func (s *adminStub) refusal(message string) map[string]any {
 	return body
 }
 
+func (s *adminStub) recorded() []recordedRequest {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return append([]recordedRequest{}, s.requests...)
+}
+
 func (s *adminStub) lastBody() map[string]any {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -337,8 +346,13 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 		}})
 	case path == "release-status":
 		writeJSON(w, http.StatusOK, map[string]any{"summary": map[string]any{"status": "converged", "converged": 1, "serving": 1}, "gateways": []map[string]any{{"gatewayId": "shared-a", "desiredRelease": 3, "liveRelease": 3, "observation": "converged"}}})
+	case path == "logs" && s.options.logsHang:
+		<-r.Context().Done()
 	case path == "logs":
 		fmt.Fprintln(w, `{"timestamp":"2026-11-10T00:00:00Z","severity":"WARNING","service":"api","message":"a line from the log stream"}`)
+		if s.options.logsTruncated {
+			fmt.Fprintln(w, `{"timestamp":"2026-11-10T00:00:01Z","severity":"WARNING","service":"fleet","instance":"admin-api","message":"Older entries in this window were not read. Shorten since or add a filter.","details":{"truncated":true}}`)
+		}
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "details":
 		s.serveDetails(w, segments[1])
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "releases":
@@ -617,6 +631,8 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 		Sleep:   func(context.Context, time.Duration) error { return nil },
 		Now:     func() time.Time { return fixedNow },
 		Version: "test",
+
+		historyLimit: options.historyLimit,
 	}
 	if options.defaultHTTP {
 		runtime.HTTP = nil
@@ -626,7 +642,7 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 		exit:        exit,
 		stdout:      stdout.String(),
 		stderr:      stderr.String(),
-		requests:    stub.requests,
+		requests:    stub.recorded(),
 		issuerForms: issuer.forms,
 		sessionPath: filepath.Join(store.Dir, fixture.environment+".json"),
 	}

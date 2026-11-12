@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpsListFiltersByStatusAndLimit(t *testing.T) {
@@ -105,6 +106,37 @@ func TestLogsStreamsTheFilteredLines(t *testing.T) {
 func TestLogsPassesJSONThroughUnchanged(t *testing.T) {
 	run := fleet(t, "logs", "--no-follow", "--format=json")
 	expectContains(t, run.stdout, `"severity":"WARNING"`)
+}
+
+func TestLogsWithoutFollowStopsWhenTheAdminAPIDoesNotFinish(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{logsHang: true, historyLimit: 50 * time.Millisecond}, "logs", "--no-follow", "--since=2h")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure, got: %s", run.stdout)
+	}
+	expectContains(t, run.stderr, "older entries may not have been read")
+	expectContains(t, run.stderr, "shorten --since")
+}
+
+func TestLogsSaysWhenOlderEntriesWereNotRead(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{logsTruncated: true}, "logs", "--no-follow", "--since=2h")
+	if run.exit != 0 {
+		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	}
+	expectContains(t, run.stderr, "older entries in this window were not read; shorten --since or add a filter")
+	if strings.Contains(run.stdout, "Older entries") {
+		t.Fatalf("the truncation marker is not a log line:\n%s", run.stdout)
+	}
+}
+
+func TestLogsInJSONKeepTheTruncationMarker(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{logsTruncated: true}, "logs", "--no-follow", "--format=json")
+	expectContains(t, run.stdout, `"truncated":true`)
+	expectContains(t, run.stderr, "older entries in this window were not read")
+}
+
+func TestLogsColourTheSeverityOnATerminal(t *testing.T) {
+	run := fleetWith(t, fixture, forcedColor, "logs", "--no-follow")
+	expectContains(t, run.stdout, ansiYellow+"WARNING")
 }
 
 func TestLogsRefusesAnUnknownFormat(t *testing.T) {
