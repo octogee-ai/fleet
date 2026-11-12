@@ -76,7 +76,7 @@ func (s *spinner) spin(label string, stop, done chan struct{}) {
 	ticker := time.NewTicker(spinnerFrame)
 	defer ticker.Stop()
 	for frame := 0; ; frame++ {
-		fmt.Fprintf(s.out, "\r%s %s", s.style.cyan(spinnerFrames[frame%len(spinnerFrames)]), s.style.dim(label))
+		fmt.Fprint(s.out, "\r"+forTerminal(s.style.cyan(spinnerFrames[frame%len(spinnerFrames)])+" "+s.style.dim(label)))
 		select {
 		case <-stop:
 			fmt.Fprint(s.out, "\r\x1b[K")

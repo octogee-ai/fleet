@@ -146,9 +146,9 @@ func checkFlag(c *command, name string, flag parsedFlag, accepted flagSet) error
 	kind, ok := accepted[name]
 	if !ok {
 		if suggestion := suggestFlag(name, accepted); suggestion != "" {
-			return fmt.Errorf("%s does not accept --%s\ndid you mean --%s?", c.name(), name, suggestion)
+			return advise(fmt.Errorf("%s does not accept --%s", c.name(), name), "did you mean --"+suggestion+"?")
 		}
-		return fmt.Errorf("%s does not accept --%s\nrun `octogee-fleet help %s` for its flags", c.name(), name, c.name())
+		return advise(fmt.Errorf("%s does not accept --%s", c.name(), name), "run `octogee-fleet help "+c.name()+"` for its flags")
 	}
 	if kind == bareFlag && flag.hasValue {
 		return fmt.Errorf("--%s takes no value", name)

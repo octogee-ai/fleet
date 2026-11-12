@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"crypto/rand"
 	"io"
 	"os"
+	"regexp"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/octogee-ai/octogee-fleet/internal/terminal"
 )
 
 const (
@@ -15,6 +20,37 @@ const (
 	ansiYellow = "\x1b[33m"
 	ansiCyan   = "\x1b[36m"
 )
+
+// colourMark stands in for a colour code until the text is written. Text is
+// escaped as it is written and only then are the marks turned into colour
+// codes, so text from the Admin API is never written raw. The mark holds a
+// token chosen at random for each run, so that text cannot forge one.
+var colourMark = "\ue000" + rand.Text()
+
+var (
+	colourMarks = regexp.MustCompile(regexp.QuoteMeta(colourMark) + ".")
+	colourCodes = strings.NewReplacer(
+		colourMark+"0", ansiReset, colourMark+"b", ansiBold, colourMark+"d", ansiDim,
+		colourMark+"r", ansiRed, colourMark+"g", ansiGreen, colourMark+"y", ansiYellow, colourMark+"c", ansiCyan,
+	)
+)
+
+// forTerminal is text as it is written to the terminal: escaped, then
+// coloured.
+func forTerminal(text string) string {
+	return colourCodes.Replace(terminal.Escape(text))
+}
+
+// coloured is text written as it is, only coloured. It is for text that must
+// reach the operator unchanged, such as a one-time password.
+func coloured(text string) string {
+	return colourCodes.Replace(text)
+}
+
+// visibleWidth is how many columns text takes once written.
+func visibleWidth(text string) int {
+	return utf8.RuneCountInString(colourMarks.ReplaceAllString(text, ""))
+}
 
 // palette decides how one output stream is decorated. Colour and glyphs are
 // for people at a terminal; piped output stays plain so scripts can read it.
@@ -47,15 +83,15 @@ func (p palette) paint(code, text string) string {
 	if !p.color || text == "" {
 		return text
 	}
-	return code + text + ansiReset
+	return colourMark + code + text + colourMark + "0"
 }
 
-func (p palette) bold(text string) string   { return p.paint(ansiBold, text) }
-func (p palette) dim(text string) string    { return p.paint(ansiDim, text) }
-func (p palette) red(text string) string    { return p.paint(ansiRed, text) }
-func (p palette) green(text string) string  { return p.paint(ansiGreen, text) }
-func (p palette) yellow(text string) string { return p.paint(ansiYellow, text) }
-func (p palette) cyan(text string) string   { return p.paint(ansiCyan, text) }
+func (p palette) bold(text string) string   { return p.paint("b", text) }
+func (p palette) dim(text string) string    { return p.paint("d", text) }
+func (p palette) red(text string) string    { return p.paint("r", text) }
+func (p palette) green(text string) string  { return p.paint("g", text) }
+func (p palette) yellow(text string) string { return p.paint("y", text) }
+func (p palette) cyan(text string) string   { return p.paint("c", text) }
 
 type tone int
 

@@ -247,18 +247,18 @@ func (i *invocation) read(path string, query url.Values, view any) (json.RawMess
 	if view == nil {
 		return response, nil
 	}
-	if err := decodeForDisplay(response, view); err != nil {
+	if err := json.Unmarshal(response, view); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
 	return response, nil
 }
 
-// records decodes each record for display and keeps it as the Admin API sent
-// it, for JSON output.
+// records decodes each record and keeps it as the Admin API sent it, for JSON
+// output.
 func records[T any](raw []json.RawMessage, keep func(*T, json.RawMessage)) ([]T, error) {
 	decoded := make([]T, len(raw))
 	for index, record := range raw {
-		if err := decodeForDisplay(record, &decoded[index]); err != nil {
+		if err := json.Unmarshal(record, &decoded[index]); err != nil {
 			return nil, err
 		}
 		keep(&decoded[index], record)

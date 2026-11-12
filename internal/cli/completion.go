@@ -23,11 +23,11 @@ func completion(i *invocation) error {
 	shell := i.args[0]
 	switch shell {
 	case "bash":
-		i.line(bashCompletion())
+		i.raw(bashCompletion())
 	case "fish":
-		i.line(fishCompletion())
+		i.raw(fishCompletion())
 	case "zsh":
-		i.line(zshCompletion())
+		i.raw(zshCompletion())
 	default:
 		return fmt.Errorf("completion supports %s, not %q", strings.Join(completionShells, ", "), shell)
 	}

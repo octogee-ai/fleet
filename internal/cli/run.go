@@ -47,15 +47,36 @@ func Run(ctx context.Context, argv []string, runtime Runtime) int {
 	return 1
 }
 
+// advice is an error with what to try next. Each hint is written on a line of
+// its own, apart from the error, whose text may come from the Admin API.
+type advice struct {
+	err   error
+	hints []string
+}
+
+func advise(err error, hints ...string) error { return advice{err: err, hints: hints} }
+
+func (a advice) Error() string {
+	return strings.Join(append([]string{a.err.Error()}, a.hints...), "; ")
+}
+
+func (a advice) Unwrap() error { return a.err }
+
 func writeError(out io.Writer, style palette, err error) {
-	lines := strings.Split(err.Error(), "\n")
+	headline, hints := err.Error(), []string(nil)
+	if given, ok := err.(advice); ok {
+		headline, hints = given.err.Error(), given.hints
+	}
 	if !style.glyphs {
-		fmt.Fprintf(out, "octogee-fleet: %s\n", strings.Join(lines, "\n"))
+		fmt.Fprintln(out, forTerminal("octogee-fleet: "+headline))
+		for _, hint := range hints {
+			fmt.Fprintln(out, forTerminal(hint))
+		}
 		return
 	}
-	fmt.Fprintf(out, "%s %s\n", style.red("✗"), style.bold(lines[0]))
-	for _, line := range lines[1:] {
-		fmt.Fprintf(out, "  %s %s\n", style.cyan("→"), line)
+	fmt.Fprintln(out, forTerminal(style.red("✗")+" "+style.bold(headline)))
+	for _, hint := range hints {
+		fmt.Fprintln(out, forTerminal("  "+style.cyan("→")+" "+hint))
 	}
 }
 
@@ -112,13 +133,13 @@ func (i *invocation) explain(err error) error {
 	}
 	switch {
 	case failed.Status == http.StatusUnauthorized && i.environment.OIDC != nil:
-		return fmt.Errorf("%w\nsign in again: octogee-fleet --env=%s login", err, i.name)
+		return advise(err, "sign in again: octogee-fleet --env="+i.name+" login")
 	case failed.Status == http.StatusUnauthorized:
-		return fmt.Errorf("%w\ncheck the token that %s's tokenCommand prints", err, i.name)
+		return advise(err, "check the token that "+i.name+"'s tokenCommand prints")
 	case failed.Status == http.StatusForbidden:
-		return fmt.Errorf("%w\nthe Admin API accepted the sign-in, but this identity may not do this; check that it is on the platform's operator list", err)
+		return advise(err, "the Admin API accepted the sign-in, but this identity may not do this; check that it is on the platform's operator list")
 	case failed.Status >= 500:
-		return fmt.Errorf("%w\nthe Admin API could not finish; try again in a moment", err)
+		return advise(err, "the Admin API could not finish; try again in a moment")
 	}
 	return err
 }

@@ -82,12 +82,12 @@ func help(out ui, target []string) error {
 func unknownCommand(positional []string) error {
 	typed := strings.Join(positional, " ")
 	if suggestion := suggestCommand(positional); suggestion != "" {
-		return fmt.Errorf("unknown command %q\ndid you mean `octogee-fleet %s`?", typed, suggestion)
+		return advise(fmt.Errorf("unknown command %q", typed), "did you mean `octogee-fleet "+suggestion+"`?")
 	}
 	if isNoun(positional[0]) {
-		return fmt.Errorf("unknown command %q\nrun `octogee-fleet help %s` for its commands", typed, canonical(positional)[0])
+		return advise(fmt.Errorf("unknown command %q", typed), "run `octogee-fleet help "+canonical(positional)[0]+"` for its commands")
 	}
-	return fmt.Errorf("unknown command %q\nrun `octogee-fleet help` for the commands", typed)
+	return advise(fmt.Errorf("unknown command %q", typed), "run `octogee-fleet help` for the commands")
 }
 
 func (u ui) heading(text string) {

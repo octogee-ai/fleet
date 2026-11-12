@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -99,6 +100,8 @@ type recordedRequest struct {
 	adminRequest
 	authorization  string
 	idempotencyKey string
+	// uri is the request target exactly as the command sent it.
+	uri string
 }
 
 type runOptions struct {
@@ -127,6 +130,7 @@ type runOptions struct {
 	interruptDetails bool
 	errorMessage     string
 	detailsPause     time.Duration
+	chatPassword     string
 }
 
 type fleetRun struct {
@@ -305,7 +309,7 @@ func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"operationId": "op-passwords",
-		"chat":        map[string]any{"username": "ada", "password": "chat-secret"},
+		"chat":        map[string]any{"username": "ada", "password": cmp.Or(s.options.chatPassword, "chat-secret")},
 		"git":         map[string]any{"username": "ws-ada", "password": "git-secret"},
 	})
 }
@@ -338,6 +342,7 @@ func (s *adminStub) record(r *http.Request) {
 		adminRequest:   adminRequest{Method: r.Method, Path: r.URL.Path},
 		authorization:  r.Header.Get("Authorization"),
 		idempotencyKey: r.Header.Get("Idempotency-Key"),
+		uri:            r.RequestURI,
 	}
 	if query := r.URL.Query(); len(query) > 0 {
 		recorded.Query = map[string]string{}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
-	"github.com/octogee-ai/octogee-fleet/internal/terminal"
 )
 
 var platformCommands = []*command{
@@ -282,7 +282,7 @@ func logs(i *invocation) error {
 		return nil
 	})
 	if errors.Is(err, context.DeadlineExceeded) && i.ctx.Err() == nil {
-		return fmt.Errorf("stopped after %s: the Admin API had not finished reading the history, so older entries may not have been read\nshorten --since or add a filter such as --gateway, --service or --level", limit)
+		return advise(fmt.Errorf("stopped after %s: the Admin API had not finished reading the history, so older entries may not have been read", limit), "shorten --since or add a filter such as --gateway, --service or --level")
 	}
 	return err
 }
@@ -301,15 +301,15 @@ type logEntry struct {
 // did not read to the end with a truncated entry; that becomes a warning.
 func (i *invocation) logLine(line []byte) {
 	var entry logEntry
-	parsed := decodeForDisplay(line, &entry) == nil
+	parsed := json.Unmarshal(line, &entry) == nil
 	if parsed && entry.Details.Truncated {
 		i.notice("older entries in this window were not read; shorten --since or add a filter")
 	}
 	switch {
 	case i.json:
-		i.line(string(line))
+		i.raw(string(line))
 	case !parsed:
-		i.line(terminal.Escape(string(line)))
+		i.line(string(line))
 	case !entry.Details.Truncated:
 		i.line(fmt.Sprintf("%s %s %s %s", i.style.dim(entry.Timestamp), i.style.toned(toneOf(entry.Severity), entry.Severity), i.style.cyan(entry.Service), entry.Message))
 	}

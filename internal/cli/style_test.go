@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
 
 const escape = "\x1b["
+
+// ansiPattern matches the colour codes written to a terminal.
+var ansiPattern = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 var forcedColor = runOptions{env: map[string]string{"FORCE_COLOR": "1"}}
 

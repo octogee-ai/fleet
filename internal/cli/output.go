@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"github.com/octogee-ai/octogee-fleet/internal/terminal"
 )
 
 const (
@@ -48,7 +48,13 @@ func newUI(runtime Runtime, parsed parsedArgs) ui {
 	}
 }
 
-func (u ui) line(text string) { fmt.Fprintln(u.out, text) }
+// line writes one line of text, escaped so that text from the Admin API
+// cannot drive the terminal.
+func (u ui) line(text string) { fmt.Fprintln(u.out, forTerminal(text)) }
+
+// raw writes text the command made itself and that must not be escaped, such
+// as a completion script or a JSON document.
+func (u ui) raw(text string) { fmt.Fprintln(u.out, text) }
 
 func (u ui) mark(glyph func(string) string, symbol, plain, text string) {
 	if u.style.glyphs {
@@ -86,10 +92,10 @@ func (u ui) detail(text string) {
 // that JSON on stdout stays parseable.
 func (u ui) notice(text string) {
 	if u.errors.glyphs {
-		fmt.Fprintln(u.err, u.errors.yellow("⚠")+" "+text)
+		fmt.Fprintln(u.err, forTerminal(u.errors.yellow("⚠")+" "+text))
 		return
 	}
-	fmt.Fprintln(u.err, "warning: "+text)
+	fmt.Fprintln(u.err, forTerminal("warning: "+text))
 }
 
 func (u ui) printJSON(value any) error {
@@ -110,16 +116,24 @@ func recordsOf[T any](items []T, record func(T) json.RawMessage) []json.RawMessa
 	return list
 }
 
-var ansiPattern = regexp.MustCompile("\x1b\\[[0-9;]*m")
-
-func visibleWidth(text string) int {
-	return utf8.RuneCountInString(ansiPattern.ReplaceAllString(text, ""))
+// table aligns columns by their visible width once escaped, so coloured and
+// escaped cells line up.
+func (u ui) table(header []string, rows [][]string, empty string) {
+	escaped := make([][]string, len(rows))
+	for index, row := range rows {
+		escaped[index] = make([]string, len(row))
+		for column, cell := range row {
+			escaped[index][column] = terminal.Escape(cell)
+		}
+	}
+	u.writeTable(u.line, header, escaped, empty)
 }
 
-// table aligns columns by their visible width, so coloured cells line up.
-func (u ui) table(header []string, rows [][]string, empty string) {
+// writeTable aligns rows that are ready to write, and writes each line with
+// write.
+func (u ui) writeTable(write func(string), header []string, rows [][]string, empty string) {
 	if len(rows) == 0 {
-		u.line(u.style.dim(empty))
+		write(u.style.dim(empty))
 		return
 	}
 	widths := make([]int, len(header))
@@ -135,9 +149,9 @@ func (u ui) table(header []string, rows [][]string, empty string) {
 	for index, name := range header {
 		titles[index] = u.style.dim(strings.ToUpper(name))
 	}
-	u.line(alignRow(titles, widths))
+	write(alignRow(titles, widths))
 	for _, row := range rows {
-		u.line(alignRow(row, widths))
+		write(alignRow(row, widths))
 	}
 }
 

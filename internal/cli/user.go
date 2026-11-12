@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
+	"github.com/octogee-ai/octogee-fleet/internal/terminal"
 )
 
 const provisioningComplete = "complete"
@@ -223,11 +224,16 @@ func userIssuePasswords(i *invocation) error {
 	return i.printOneTimePasswords(request, data)
 }
 
+// passwordLine writes a line of the password table without escaping it, so
+// that the operator sees the passwords exactly as the Admin API set them. The
+// rest of the row is escaped before it gets here.
+func (u ui) passwordLine(text string) { fmt.Fprintln(u.out, coloured(text)) }
+
 const passwordsShownOnce = "These passwords are shown once and are not stored. Git asks for a new one at first sign-in; ask the user to change the chat password too."
 
 func (i *invocation) printOneTimePasswords(request admin.Request, data []byte) error {
 	var issued oneTimePasswords
-	if err := decodeForDisplay(data, &issued); err != nil || issued.Chat.Password == "" || issued.Git.Password == "" {
+	if err := json.Unmarshal(data, &issued); err != nil || issued.Chat.Password == "" || issued.Git.Password == "" {
 		return errors.New("the server returned no passwords; run this command again to issue new ones")
 	}
 	if i.json {
@@ -240,9 +246,9 @@ func (i *invocation) printOneTimePasswords(request admin.Request, data []byte) e
 		i.line("applied: new passwords issued")
 	}
 	i.detail("operation " + i.style.bold(issued.OperationID))
-	i.table([]string{"system", "username", "password"}, [][]string{
-		{"chat", issued.Chat.Username, i.style.bold(issued.Chat.Password)},
-		{"git", issued.Git.Username, i.style.bold(issued.Git.Password)},
+	i.writeTable(i.passwordLine, []string{"system", "username", "password"}, [][]string{
+		{"chat", terminal.Escape(issued.Chat.Username), i.style.bold(issued.Chat.Password)},
+		{"git", terminal.Escape(issued.Git.Username), i.style.bold(issued.Git.Password)},
 	}, "")
 	i.warn(passwordsShownOnce)
 	return nil
