@@ -19,6 +19,8 @@ const (
 	driftInFlight  = "in-flight"
 	driftUnmounted = "assigned-not-mounted"
 	driftOrphan    = "mounted-orphan"
+	driftPointer   = "pointer-drift"
+	driftMissing   = "missing-gateway"
 )
 
 type gatewaySummary struct {
@@ -144,6 +146,7 @@ type placedUser struct {
 	Name               string `json:"name"`
 	AssignedGatewayID  string `json:"assignedGatewayId"`
 	MountedGatewayID   string `json:"mountedGatewayId"`
+	TargetGatewayID    string `json:"policyTargetGatewayId"`
 	ProvisioningStatus string `json:"provisioningStatus"`
 	DriftState         string `json:"driftState"`
 	Email              string `json:"email"`
@@ -267,15 +270,27 @@ func (i *invocation) namedUser() (placedUser, error) {
 	return directory.user(i.args[0])
 }
 
+// drift says how the user's placement disagrees with itself, naming the
+// gateways as the Admin API's own placement warnings do.
 func (u placedUser) drift() string {
+	placed, mounted, target := dash(u.AssignedGatewayID), dash(u.MountedGatewayID), dash(u.TargetGatewayID)
 	switch u.DriftState {
 	case "", driftHealthy, driftInFlight:
 		return ""
 	case driftUnmounted:
-		return fmt.Sprintf("drift: %s is placed on %s but not mounted there", u.Name, u.AssignedGatewayID)
+		return fmt.Sprintf("drift: %s is placed on %s but not mounted there", u.Name, placed)
 	case driftOrphan:
-		return fmt.Sprintf("drift: %s is mounted on %s but not placed there", u.Name, u.MountedGatewayID)
-	default:
-		return fmt.Sprintf("drift: %s is %s (placed on %s, mounted on %s)", u.Name, u.DriftState, dash(u.AssignedGatewayID), dash(u.MountedGatewayID))
+		if u.AssignedGatewayID == "" {
+			return fmt.Sprintf("drift: %s is mounted on %s but not placed there", u.Name, mounted)
+		}
+		return fmt.Sprintf("drift: %s is mounted on %s but placed on %s", u.Name, mounted, placed)
+	case driftPointer:
+		return fmt.Sprintf("drift: %s is placed on %s but the placement target is %s", u.Name, placed, target)
+	case driftMissing:
+		if u.TargetGatewayID == "" || u.TargetGatewayID == u.AssignedGatewayID {
+			return fmt.Sprintf("drift: %s is placed on %s, which is retired or unknown", u.Name, placed)
+		}
+		return fmt.Sprintf("drift: %s is placed on %s with placement target %s; one of them is retired or unknown", u.Name, placed, target)
 	}
+	return fmt.Sprintf("drift: %s is %s (placed on %s, placement target %s, mounted on %s)", u.Name, u.DriftState, placed, target, mounted)
 }

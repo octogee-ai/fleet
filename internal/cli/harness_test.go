@@ -48,6 +48,8 @@ const (
 
 type fixtureUser struct {
 	id, name, gatewayID, provisioning string
+	// target is the placement target the Admin API reports; empty means the user's gateway.
+	target string
 }
 
 type fixtureGateway struct {
@@ -428,30 +430,49 @@ func (s *adminStub) mountedOn(userID string) string {
 	return ""
 }
 
-func driftState(assigned, mounted string) string {
-	switch {
-	case assigned == mounted:
-		return "healthy"
-	case mounted == "":
-		return "assigned-not-mounted"
-	case assigned == "":
-		return "mounted-orphan"
-	default:
-		return "pointer-drift"
+// driftState mirrors the order in which the Admin API classifies placement.
+func (s *adminStub) driftState(assigned, mounted, target string) string {
+	missing := func(id string) bool {
+		if id == "" {
+			return false
+		}
+		for _, gateway := range s.fixture.gateways {
+			if gateway.id == id {
+				return gateway.desired == "retired"
+			}
+		}
+		return true
 	}
+	switch {
+	case missing(target) || missing(assigned):
+		return "missing-gateway"
+	case assigned != "" && target != "" && assigned != target:
+		return "pointer-drift"
+	case mounted != "" && mounted != assigned:
+		return "mounted-orphan"
+	case assigned != "" && mounted != assigned:
+		return "assigned-not-mounted"
+	}
+	return "healthy"
 }
 
 func (s *adminStub) placement() map[string]any {
 	users := make([]map[string]any, 0, len(s.fixture.users))
 	for _, user := range s.fixture.users {
 		mounted := s.mountedOn(user.id)
+		target := user.target
+		if target == "" {
+			target = user.gatewayID
+		}
 		users = append(users, map[string]any{
-			"id":                 user.id,
-			"name":               user.name,
-			"assignedGatewayId":  nullable(user.gatewayID),
-			"mountedGatewayId":   nullable(mounted),
-			"driftState":         driftState(user.gatewayID, mounted),
-			"provisioningStatus": provisioningOf(user),
+			"id":                    user.id,
+			"name":                  user.name,
+			"email":                 user.name + "@example.test",
+			"policyTargetGatewayId": nullable(target),
+			"assignedGatewayId":     nullable(user.gatewayID),
+			"mountedGatewayId":      nullable(mounted),
+			"driftState":            s.driftState(user.gatewayID, mounted, target),
+			"provisioningStatus":    provisioningOf(user),
 		})
 	}
 	gateways := make([]map[string]any, 0, len(s.fixture.gateways))

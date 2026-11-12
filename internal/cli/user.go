@@ -146,9 +146,14 @@ func userInspect(i *invocation) error {
 		return i.printJSON(map[string]any{"user": user.record, "isolatedGateways": isolated})
 	}
 	i.line(i.style.bold(user.Name) + "  " + i.style.dim(user.ID))
+	target := ""
+	if user.TargetGatewayID != user.AssignedGatewayID {
+		target = dash(user.TargetGatewayID)
+	}
 	userFields := []field{
 		{"email", user.Email},
 		{"gateway", dash(user.AssignedGatewayID)},
+		{"placement target", target},
 		{"mounted on", dash(user.MountedGatewayID)},
 		{"provisioning", i.style.dot(user.ProvisioningStatus)},
 		{"placement", i.style.state(user.DriftState)},

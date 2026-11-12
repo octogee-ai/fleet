@@ -177,6 +177,35 @@ func TestUserListReportsDriftInBothDirections(t *testing.T) {
 	}
 }
 
+func withUser(name string, change func(*fixtureUser)) fleetFixture {
+	changed := fixture
+	changed.users = append([]fixtureUser{}, fixture.users...)
+	for index := range changed.users {
+		if changed.users[index].name == name {
+			change(&changed.users[index])
+		}
+	}
+	return changed
+}
+
+func TestDriftNamesThePlacementTarget(t *testing.T) {
+	drifted := withUser("ada", func(u *fixtureUser) { u.target = "shared-b" })
+	run := fleetWith(t, drifted, runOptions{}, "user", "ls")
+	expectContains(t, run.stdout, "drift: ada is placed on shared-a but the placement target is shared-b")
+}
+
+func TestDriftNamesWhereAMountedUserIsPlaced(t *testing.T) {
+	drifted := withUser("ada", func(u *fixtureUser) { u.gatewayID, u.target = "shared-b", "shared-b" })
+	run := fleetWith(t, drifted, runOptions{}, "user", "ls")
+	expectContains(t, run.stdout, "drift: ada is mounted on shared-a but placed on shared-b")
+}
+
+func TestDriftNamesAGatewayThatIsGone(t *testing.T) {
+	drifted := withUser("ada", func(u *fixtureUser) { u.gatewayID, u.target = "shared-gone", "shared-gone" })
+	run := fleetWith(t, drifted, runOptions{}, "user", "inspect", "ada")
+	expectContains(t, run.stdout, "drift: ada is placed on shared-gone, which is retired or unknown")
+}
+
 func TestUserInspectIsReadOnly(t *testing.T) {
 	run := fleet(t, "user", "inspect", "grace")
 	expectRead(t, run)
