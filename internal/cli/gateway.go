@@ -124,12 +124,14 @@ func gatewayAdd(i *invocation) error {
 		return fmt.Errorf("--id must be a lowercase DNS-safe id of 1 to 32 characters, got %q", id)
 	}
 	body := map[string]any{"gatewayId": id}
+	build := "the platform's build"
 	if i.has("sha") {
 		sha, err := fullSHA(i.value("sha"))
 		if err != nil {
 			return err
 		}
 		body["sourceSha"] = sha
+		build = "build " + shortSHA(sha)
 	}
 	gateways, err := i.gateways(true)
 	if err != nil {
@@ -138,7 +140,7 @@ func gatewayAdd(i *invocation) error {
 	if _, err := findGateway(gateways, id); err == nil {
 		return fmt.Errorf("gateway %q already exists", id)
 	}
-	return i.post(admin.Path("gateways"), body)
+	return i.apply(change{request: post(admin.Path("gateways"), body), done: fmt.Sprintf("shared gateway %s added on %s", id, build)})
 }
 
 func gatewayDeploy(i *invocation) error {
@@ -150,7 +152,10 @@ func gatewayDeploy(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	return i.post(admin.Path("gateways", gateway.GatewayID, "deploy"), map[string]any{"sourceSha": sha})
+	return i.apply(change{
+		request: post(admin.Path("gateways", gateway.GatewayID, "deploy"), map[string]any{"sourceSha": sha}),
+		done:    fmt.Sprintf("deploy of build %s to %s queued", shortSHA(sha), gateway.GatewayID),
+	})
 }
 
 func gatewayRestart(i *invocation) error {
@@ -158,7 +163,7 @@ func gatewayRestart(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	return i.post(admin.Path("gateways", gateway.GatewayID, "restart"), nil)
+	return i.apply(change{request: post(admin.Path("gateways", gateway.GatewayID, "restart"), nil), done: "restart of " + gateway.GatewayID + " queued"})
 }
 
 func gatewayDesiredStatus(status string) func(*invocation) error {
@@ -167,10 +172,9 @@ func gatewayDesiredStatus(status string) func(*invocation) error {
 		if err != nil {
 			return err
 		}
-		return i.mutate(admin.Request{
-			Method: http.MethodPatch,
-			Path:   admin.Path("gateways", gateway.GatewayID),
-			Body:   map[string]any{"desiredStatus": status},
+		return i.apply(change{
+			request: admin.Request{Method: http.MethodPatch, Path: admin.Path("gateways", gateway.GatewayID), Body: map[string]any{"desiredStatus": status}},
+			done:    gateway.GatewayID + " set to " + status,
 		})
 	}
 }
@@ -190,7 +194,10 @@ func gatewayRetire(i *invocation) error {
 	if i.has("retain-service-account") {
 		query.Set("retainServiceAccount", "true")
 	}
-	return i.mutate(admin.Request{Method: http.MethodDelete, Path: admin.Path("gateways", gateway.GatewayID), Query: query})
+	return i.apply(change{
+		request: admin.Request{Method: http.MethodDelete, Path: admin.Path("gateways", gateway.GatewayID), Query: query},
+		done:    "retirement of " + gateway.GatewayID + " queued",
+	})
 }
 
 func gatewayReleases(i *invocation) error {
@@ -227,7 +234,10 @@ func gatewayRollback(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	return i.post(admin.Path("gateways", gateway.GatewayID, "releases", strconv.Itoa(release), "rollback"), nil)
+	return i.apply(change{
+		request: post(admin.Path("gateways", gateway.GatewayID, "releases", strconv.Itoa(release), "rollback"), nil),
+		done:    fmt.Sprintf("rollback of %s to release %d queued", gateway.GatewayID, release),
+	})
 }
 
 func gatewayReplaceVM(i *invocation) error {
@@ -235,5 +245,5 @@ func gatewayReplaceVM(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	return i.replaceVM(admin.Path("gateways", gateway.GatewayID, "vm", "replace"))
+	return i.replaceVM(admin.Path("gateways", gateway.GatewayID, "vm", "replace"), "VM replacement for "+gateway.GatewayID+" queued")
 }

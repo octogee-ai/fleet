@@ -240,7 +240,8 @@ func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !strings.HasSuffix(r.URL.Path, "/one-time-passwords") {
-		writeJSON(w, http.StatusAccepted, map[string]any{"operationId": "op-recorded"})
+		status, body := appliedAnswer(r)
+		writeJSON(w, status, body)
 		return
 	}
 	if s.options.omitPasswords {
@@ -252,6 +253,29 @@ func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
 		"chat":        map[string]any{"username": "ada", "password": "chat-secret"},
 		"git":         map[string]any{"username": "ws-ada", "password": "git-secret"},
 	})
+}
+
+// appliedAnswer is what the Admin API returns for an applied mutation. Not
+// every route returns an operation id.
+func appliedAnswer(r *http.Request) (int, map[string]any) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/")
+	segments := strings.Split(path, "/")
+	switch {
+	case r.Method == http.MethodPatch:
+		return http.StatusAccepted, map[string]any{"gatewayId": segments[1], "updated": []string{"desiredStatus"}}
+	case strings.HasSuffix(path, "/assign"):
+		return http.StatusAccepted, map[string]any{"uid": segments[1], "gatewayId": "shared-b", "gatewayProfile": "shared"}
+	case strings.HasSuffix(path, "/unassign"):
+		return http.StatusOK, map[string]any{"unassigned": true, "uid": segments[1], "from": "shared-a"}
+	case strings.HasSuffix(path, "/delete"):
+		return http.StatusAccepted, map[string]any{
+			"status": "deletion_scheduled", "deletionId": "deletion-1",
+			"suspensionOperationId": "op-suspend", "erasureOperationId": "op-erase",
+		}
+	case path == "users":
+		return http.StatusCreated, map[string]any{"userId": "u-new", "operationId": "op-recorded"}
+	}
+	return http.StatusAccepted, map[string]any{"operationId": "op-recorded"}
 }
 
 func (s *adminStub) record(r *http.Request) {

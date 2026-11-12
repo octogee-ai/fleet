@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -56,7 +55,7 @@ var userCommands = []*command{
 	{
 		path: words("user unassign"), usage: "<user>", argc: 1, summary: "Remove a user's placement.", mutating: true,
 		examples: []string{"ada"},
-		run:      userAction("unassign", nil),
+		run:      userUnassign,
 	},
 	{
 		path: words("user replace-vm"), usage: "<user> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace the VM of the user's isolated gateway.",
@@ -131,8 +130,14 @@ func userAdd(i *invocation) error {
 	if _, err := directory.user(name); err == nil {
 		return fmt.Errorf("the name %q is already taken", name)
 	}
-	return i.post(admin.Path("users"), map[string]any{"name": name, "email": i.value("email")},
-		fmt.Sprintf("once `octogee-fleet user inspect %s` shows provisioning complete, run `octogee-fleet user issue-passwords %s --apply`", name, name))
+	return i.apply(change{
+		request: post(admin.Path("users"), map[string]any{"name": name, "email": i.value("email")}),
+		done:    "user " + name + " created",
+		next: []string{
+			"place them on a gateway: " + i.command("user assign "+name+" --to=<gateway> --apply"),
+			"once user inspect shows provisioning complete: " + i.command("user issue-passwords "+name+" --apply"),
+		},
+	})
 }
 
 type signIn struct {
@@ -154,7 +159,7 @@ func userIssuePasswords(i *invocation) error {
 	if user.ProvisioningStatus != provisioningComplete {
 		return fmt.Errorf("%s has not finished provisioning (status %s)", user.Name, dash(user.ProvisioningStatus))
 	}
-	data, applied, err := i.sendMutation(admin.Request{Method: http.MethodPost, Path: admin.Path("users", user.ID, "one-time-passwords")})
+	data, applied, err := i.send(change{request: post(admin.Path("users", user.ID, "one-time-passwords"), nil)})
 	if err != nil || !applied {
 		return err
 	}
@@ -166,12 +171,17 @@ func (i *invocation) printOneTimePasswords(data []byte) error {
 	if err := json.Unmarshal(data, &issued); err != nil || issued.Chat.Password == "" || issued.Git.Password == "" {
 		return errors.New("the server returned no passwords; run this command again to issue new ones")
 	}
-	fmt.Fprintf(i.out, "operation %s\n", issued.OperationID)
+	if i.style.glyphs {
+		i.ok("new passwords issued")
+	} else {
+		i.line("applied: new passwords issued")
+	}
+	i.detail("operation " + i.style.bold(issued.OperationID))
 	i.table([]string{"system", "username", "password"}, [][]string{
-		{"chat", issued.Chat.Username, issued.Chat.Password},
-		{"git", issued.Git.Username, issued.Git.Password},
+		{"chat", issued.Chat.Username, i.style.bold(issued.Chat.Password)},
+		{"git", issued.Git.Username, i.style.bold(issued.Git.Password)},
 	}, "")
-	fmt.Fprintln(i.out, "These passwords are shown once and are not stored. Git asks for a new one at first sign-in; ask the user to change the chat password too.")
+	i.warn("these passwords are shown once and are not stored. Git asks for a new one at first sign-in; ask the user to change the chat password too.")
 	return nil
 }
 
@@ -181,7 +191,7 @@ func userAssign(i *invocation) error {
 		return err
 	}
 	if user.AssignedGatewayID == target.GatewayID {
-		fmt.Fprintf(i.out, "%s is already on %s; nothing to do\n", user.Name, target.GatewayID)
+		i.ok(fmt.Sprintf("%s is already on %s; nothing to do", user.Name, target.GatewayID))
 		return nil
 	}
 	if user.AssignedGatewayID != "" {
@@ -190,7 +200,10 @@ func userAssign(i *invocation) error {
 	if target.GatewayClass == classIsolated && target.OwnerID != user.ID {
 		return fmt.Errorf("gateway %q is isolated for another user", target.GatewayID)
 	}
-	return i.post(admin.Path("users", user.ID, "assign"), map[string]any{"gatewayId": target.GatewayID})
+	return i.apply(change{
+		request: post(admin.Path("users", user.ID, "assign"), map[string]any{"gatewayId": target.GatewayID}),
+		done:    user.Name + " assigned to " + target.GatewayID,
+	})
 }
 
 func userMigrate(i *invocation) error {
@@ -212,14 +225,17 @@ func userMigrate(i *invocation) error {
 		return fmt.Errorf("%s has no gateway to move from; use `octogee-fleet user assign` to place them", user.Name)
 	}
 	if user.AssignedGatewayID == target.GatewayID {
-		fmt.Fprintf(i.out, "%s is already on %s; nothing to do\n", user.Name, target.GatewayID)
+		i.ok(fmt.Sprintf("%s is already on %s; nothing to do", user.Name, target.GatewayID))
 		return nil
 	}
 	body := map[string]any{"to": target.GatewayID}
 	if transfer != "" {
 		body["sourceTransfer"] = transfer
 	}
-	return i.post(admin.Path("users", user.ID, "migrate"), body)
+	return i.apply(change{
+		request: post(admin.Path("users", user.ID, "migrate"), body),
+		done:    fmt.Sprintf("migration of %s from %s to %s queued", user.Name, user.AssignedGatewayID, target.GatewayID),
+	})
 }
 
 func userMigrateToIsolated(i *invocation) error {
@@ -233,7 +249,11 @@ func userMigrateToIsolated(i *invocation) error {
 	if user.AssignedGatewayID == "" {
 		return fmt.Errorf("%s has no gateway to move from; use `octogee-fleet user assign` to place them", user.Name)
 	}
-	return i.post(admin.Path("users", user.ID, "isolated-gateway"), map[string]any{"sizingProfile": i.value("to-isolated")})
+	profile := i.value("to-isolated")
+	return i.apply(change{
+		request: post(admin.Path("users", user.ID, "isolated-gateway"), map[string]any{"sizingProfile": profile}),
+		done:    fmt.Sprintf("isolated gateway (%s) requested for %s, and their migration queued", profile, user.Name),
+	})
 }
 
 func (i *invocation) userAndTarget() (placedUser, gatewaySummary, error) {
@@ -251,14 +271,16 @@ func (i *invocation) userAndTarget() (placedUser, gatewaySummary, error) {
 	return user, target, nil
 }
 
-func userAction(action string, body map[string]any) func(*invocation) error {
-	return func(i *invocation) error {
-		user, err := i.namedUser()
-		if err != nil {
-			return err
-		}
-		return i.post(admin.Path("users", user.ID, action), body)
+func userUnassign(i *invocation) error {
+	user, err := i.namedUser()
+	if err != nil {
+		return err
 	}
+	done := user.Name + " unassigned"
+	if user.AssignedGatewayID != "" {
+		done += " from " + user.AssignedGatewayID
+	}
+	return i.apply(change{request: post(admin.Path("users", user.ID, "unassign"), nil), done: done})
 }
 
 func userReplaceVM(i *invocation) error {
@@ -266,7 +288,7 @@ func userReplaceVM(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	return i.replaceVM(admin.Path("users", user.ID, "vm", "replace"))
+	return i.replaceVM(admin.Path("users", user.ID, "vm", "replace"), "VM replacement for "+user.Name+"'s isolated gateway queued")
 }
 
 func userDelete(i *invocation) error {
@@ -274,7 +296,11 @@ func userDelete(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	return i.post(admin.Path("users", user.ID, "delete"), map[string]any{"eraseNow": i.has("erase-now")})
+	done := user.Name + " scheduled for deletion"
+	if i.has("erase-now") {
+		done = user.Name + " scheduled for erasure now"
+	}
+	return i.apply(change{request: post(admin.Path("users", user.ID, "delete"), map[string]any{"eraseNow": i.has("erase-now")}), done: done})
 }
 
 func userBroker(i *invocation) error {

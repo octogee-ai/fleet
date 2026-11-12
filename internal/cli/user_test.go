@@ -194,8 +194,10 @@ func TestUserBrokerIsReadOnly(t *testing.T) {
 func TestUserAddCreatesTheUserThroughOneRequest(t *testing.T) {
 	run := fleet(t, "user", "add", "lin", "--email=lin@example.com", "--apply")
 	expectApplied(t, run, adminRequest{Method: http.MethodPost, Path: "/api/admin/users", Body: map[string]any{"name": "lin", "email": "lin@example.com"}})
+	expectContains(t, run.stdout, "applied: user lin created")
 	expectContains(t, run.stdout, "op-recorded")
-	expectContains(t, run.stdout, "octogee-fleet user issue-passwords lin --apply")
+	expectContains(t, run.stdout, "octogee-fleet --env=local user assign lin --to=<gateway> --apply")
+	expectContains(t, run.stdout, "octogee-fleet --env=local user issue-passwords lin --apply")
 }
 
 func TestUserAddRequiresAnEmail(t *testing.T) {
