@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGatewayMutations(t *testing.T) {
@@ -150,6 +152,154 @@ func TestGatewayInspectShowsPodsAndLastError(t *testing.T) {
 	expectRead(t, run)
 	expectContains(t, run.stdout, "pod-iso-grace")
 	expectContains(t, run.stdout, "ensure failed on iso-grace")
+}
+
+func TestGatewayListShowsTheVMStateOfIsolatedGateways(t *testing.T) {
+	run := fleet(t, "gateway", "ls")
+	expectRead(t, run)
+	expectContains(t, run.stdout, "VM")
+	expectContains(t, lineWith(t, run.stdout, "iso-grace"), "suspended(idle)")
+	if strings.Contains(lineWith(t, run.stdout, "shared-a"), "suspended") {
+		t.Fatalf("a shared gateway has no VM:\n%s", run.stdout)
+	}
+	if !run.containsRequest(adminRequest{Method: http.MethodGet, Path: "/api/admin/gateways/iso-grace/details"}) {
+		t.Fatalf("requests %+v", run.requests)
+	}
+	if run.containsRequest(adminRequest{Method: http.MethodGet, Path: "/api/admin/gateways/shared-a/details"}) {
+		t.Fatalf("read details of a shared gateway: %+v", run.requests)
+	}
+}
+
+func TestGatewayListPrintsWhatItReadAndFailsWhenAVMStateCouldNotBeRead(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{detailsFailWith: http.StatusInternalServerError}, "gateway", "ls")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "iso-grace"), "unknown")
+	expectContains(t, lineWith(t, run.stdout, "shared-a"), "ready")
+	expectContains(t, run.stderr, "details are unavailable")
+	expectContains(t, run.stderr, "could not read the VM state of 1 of 1 isolated gateways")
+}
+
+func withIsolatedGateway(id, owner, vm string) fleetFixture {
+	changed := fixture
+	changed.gateways = append(append([]fixtureGateway{}, fixture.gateways...), fixtureGateway{id: id, class: "isolated", desired: "running", owner: owner, vm: vm})
+	return changed
+}
+
+func TestGatewayListReadsAtMostFourVMStatesAtOnce(t *testing.T) {
+	many := fixture
+	many.gateways = append([]fixtureGateway{}, fixture.gateways...)
+	for index := range 12 {
+		many.gateways = append(many.gateways, fixtureGateway{id: fmt.Sprintf("iso-%02d", index), class: "isolated", desired: "running", owner: "u-grace", vm: "RUNNING"})
+	}
+	run := fleetWith(t, many, runOptions{detailsPause: 20 * time.Millisecond}, "gateway", "ls")
+	if run.exit != 0 {
+		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	}
+	if run.detailsPeak > 4 {
+		t.Fatalf("read %d gateway details at once; expected at most 4", run.detailsPeak)
+	}
+}
+
+func TestGatewayListNamesEachGatewayWhoseVMStateCouldNotBeRead(t *testing.T) {
+	two := withIsolatedGateway("iso-alan", "u-alan", "RUNNING")
+	run := fleetWith(t, two, runOptions{detailsFailWith: http.StatusInternalServerError, detailsFailFor: "iso-alan"}, "gateway", "ls")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "iso-grace"), "suspended")
+	expectContains(t, lineWith(t, run.stdout, "iso-alan"), "unknown")
+	expectContains(t, lineWith(t, run.stderr, "details are unavailable"), "iso-alan")
+	expectContains(t, run.stderr, "could not read the VM state of 1 of 2 isolated gateways")
+}
+
+func TestAnInterruptWhileReadingVMStatesFails(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{interruptDetails: true}, "gateway", "ls")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	expectContains(t, run.stderr, "interrupted")
+}
+
+func TestGatewayInspectShowsTheGatewayAsFields(t *testing.T) {
+	run := fleet(t, "gateway", "inspect", "iso-grace")
+	if strings.HasPrefix(strings.TrimSpace(run.stdout), "{") {
+		t.Fatalf("expected fields, not JSON:\n%s", run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "vm"), "suspended(idle)")
+	expectContains(t, lineWith(t, run.stdout, "owner"), "u-grace")
+	expectContains(t, lineWith(t, run.stdout, "grace@example.test"), "grace")
+	expectContains(t, lineWith(t, run.stdout, "op-9"), "restart-gateway")
+}
+
+func firstPod(summary map[string]any) map[string]any {
+	return summary["podDiagnostics"].(map[string]any)["pods"].([]map[string]any)[0]
+}
+
+func TestGatewayInspectReadsPodReadinessFromItsContainers(t *testing.T) {
+	run := fleet(t, "gateway", "inspect", "iso-grace")
+	row := lineWith(t, run.stdout, "pod-iso-grace")
+	expectContains(t, row, "ready 2/2")
+	if strings.Contains(row, "not ready") {
+		t.Fatalf("a running pod with every container ready is ready:\n%s", row)
+	}
+}
+
+func TestAPodWithAContainerThatIsNotReadyIsNotReady(t *testing.T) {
+	alter := func(_ string, summary map[string]any) { firstPod(summary)["readyContainers"] = 1 }
+	run := fleetWith(t, fixture, runOptions{alterSummary: alter}, "gateway", "inspect", "iso-grace")
+	expectContains(t, lineWith(t, run.stdout, "pod-iso-grace"), "not ready 1/2")
+}
+
+func TestAPodThatIsNotRunningIsNotReadyAndNamesItsPhase(t *testing.T) {
+	alter := func(_ string, summary map[string]any) { firstPod(summary)["phase"] = "Pending" }
+	run := fleetWith(t, fixture, runOptions{alterSummary: alter}, "gateway", "inspect", "iso-grace")
+	row := lineWith(t, run.stdout, "pod-iso-grace")
+	expectContains(t, row, "not ready 2/2")
+	expectContains(t, row, "Pending")
+}
+
+func oddDisplayFields(id string, summary map[string]any) {
+	if id != "shared-a" {
+		return
+	}
+	summary["lastError"] = map[string]any{"message": 42}
+	summary["podDiagnostics"] = map[string]any{"pods": "unavailable"}
+	summary["mountedUsers"] = "two"
+	summary["status"] = 7
+	summary["openclawVersion"] = map[string]any{"major": 2026}
+}
+
+func TestOddDisplayFieldsNeverBlockAMutation(t *testing.T) {
+	for _, argv := range [][]string{
+		{"gateway", "park", "shared-a"},
+		{"gateway", "restart", "shared-a"},
+		{"gateway", "deploy", "shared-a", "--sha=" + strings.Repeat("a", 40)},
+	} {
+		run := fleetWith(t, fixture, runOptions{alterSummary: oddDisplayFields}, argv...)
+		if run.exit != 0 {
+			t.Fatalf("%v: exit %d: %s", argv, run.exit, run.stderr)
+		}
+		run.onlyDryRun(t)
+	}
+}
+
+func TestOddDisplayFieldsAreShownAsSent(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{alterSummary: oddDisplayFields}, "gateway", "inspect", "shared-a")
+	if run.exit != 0 {
+		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	}
+	expectContains(t, lineWith(t, run.stdout, "last error"), "42")
+	expectContains(t, lineWith(t, run.stdout, "pods"), "unavailable")
+	listed := fleetWith(t, fixture, runOptions{alterSummary: oddDisplayFields}, "gateway", "ls")
+	expectContains(t, lineWith(t, listed.stdout, "shared-a"), "7")
+}
+
+func TestGatewayInspectOfAnUnknownGatewaySendsNoDetailsRead(t *testing.T) {
+	run := fleet(t, "gateway", "inspect", "nowhere")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, `unknown gateway "nowhere"`)
 }
 
 func TestGatewayReleasesIsReadOnly(t *testing.T) {

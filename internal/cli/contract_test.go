@@ -57,7 +57,7 @@ func TestADryRunPrintsWhatTheAdminAPIWouldDo(t *testing.T) {
 	expectContains(t, run.stdout, "dry run: the Admin API would change the fleet")
 	expectContains(t, run.stdout, "target: path=/gateways/shared-a/restart")
 	expectContains(t, run.stdout, "current state: desiredRelease=3 desiredStatus=running")
-	expectContains(t, run.stdout, "pass --apply to send this request")
+	expectContains(t, run.stdout, "dry run, nothing changed; add --apply to do it")
 }
 
 func TestADryRunKeepsTheRequestsOwnQuery(t *testing.T) {
@@ -88,7 +88,7 @@ func TestNoDryRunIsSentToAnAdminAPIThatDoesNotAnswerThem(t *testing.T) {
 		t.Fatalf("sent a dry run to a server that would apply it: %+v", sent)
 	}
 	expectContains(t, run.stdout, "does not answer dry runs")
-	expectContains(t, run.stdout, "pass --apply to send this request")
+	expectContains(t, run.stdout, "add --apply to do it")
 }
 
 func TestAnAnswerThatIsNotAPlanFailsLoudly(t *testing.T) {
@@ -120,7 +120,7 @@ func TestOfflinePrintsTheRequestWithoutAskingTheAdminAPI(t *testing.T) {
 		t.Fatalf("--offline sent a dry run: %+v", sent)
 	}
 	expectContains(t, run.stdout, "POST /api/admin/gateways/shared-a/restart\n")
-	expectContains(t, run.stdout, "dry run: pass --apply to send this request")
+	expectContains(t, run.stdout, "dry run, nothing sent; add --apply to do it")
 }
 
 func TestOfflineCannotBeCombinedWithApply(t *testing.T) {
@@ -193,7 +193,7 @@ func TestHelpPrintsTheCommandList(t *testing.T) {
 	if run.exit != 0 {
 		t.Fatalf("exit %d", run.exit)
 	}
-	expectContains(t, run.stdout, "usage: octogee-fleet --env=<name>")
+	expectContains(t, run.stdout, "octogee-fleet --env=<name> <command>")
 	expectContains(t, run.stdout, "gateway")
 	expectContains(t, run.stdout, "user")
 }
@@ -236,17 +236,66 @@ func TestTheCommandLineHasNoDependenciesOutsideTheStandardLibrary(t *testing.T) 
 	}
 }
 
-func TestARejectedSignInStopsBeforeAnyMutation(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			run := fleetWith(t, fixture, runOptions{rejectWith: status}, "gateway", "park", "shared-a", "--apply")
-			expectRefused(t, run)
-			expectContains(t, run.stderr, "rejected this sign-in")
-		})
+func TestARejectedSignInStopsBeforeAnyMutationAndNamesTheRemedy(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{rejectWith: http.StatusUnauthorized}, "gateway", "park", "shared-a", "--apply")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "rejected this sign-in (401)")
+	expectContains(t, run.stderr, "octogee-fleet --env=local login")
+}
+
+func TestAForbiddenRequestIsNotPermittedRatherThanARejectedSignIn(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{rejectWith: http.StatusForbidden, errorCode: "tenant-enforcement"}, "gateway", "park", "shared-a", "--apply")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "not permitted (403 tenant-enforcement): token rejected")
+	if strings.Contains(run.stderr, "sign-in (") {
+		t.Fatalf("a 403 was reported as a rejected sign-in:\n%s", run.stderr)
 	}
 }
 
-func TestAnAppliedMutationPrintsItsOperationID(t *testing.T) {
-	run := fleet(t, "gateway", "park", "shared-a", "--apply")
-	expectContains(t, run.stdout, "op-recorded")
+func TestARefusalNamesTheServersCode(t *testing.T) {
+	dryRun := fleetWith(t, fixture, runOptions{refuseDryRunWith: http.StatusConflict, errorCode: "user-has-isolated-gateway"}, "user", "migrate", "ada", "--to-isolated=standard")
+	expectRefused(t, dryRun)
+	expectContains(t, dryRun.stderr, "would refuse this request (409 user-has-isolated-gateway): gateway has a current retirement claim")
+
+	applied := fleetWith(t, fixture, runOptions{refuseApplyWith: http.StatusConflict, errorCode: "migration-in-flight"}, "gateway", "restart", "shared-a", "--apply")
+	if applied.exit == 0 {
+		t.Fatalf("expected a non-zero exit:\n%s", applied.stdout)
+	}
+	expectContains(t, applied.stderr, "refused this request (409 migration-in-flight): a migration is in flight for this gateway")
+}
+
+func TestAnAppliedMutationPrintsItsOperationIDAndHowToFollowIt(t *testing.T) {
+	run := fleet(t, "gateway", "restart", "shared-a", "--apply")
+	expectContains(t, run.stdout, "applied: restart of shared-a queued")
+	expectContains(t, run.stdout, "operation op-recorded")
+	expectContains(t, run.stdout, "octogee-fleet --env=local ops inspect op-recorded")
+}
+
+func TestEveryAppliedChangeSaysWhatChangedInsteadOfPrintingTheResponse(t *testing.T) {
+	cases := []struct {
+		argv []string
+		want []string
+	}{
+		{[]string{"gateway", "park", "shared-a"}, []string{"applied: shared-a set to paused", "returned no operation id", "octogee-fleet --env=local ops ls"}},
+		{[]string{"gateway", "resume", "shared-parked"}, []string{"applied: shared-parked set to running"}},
+		{[]string{"user", "assign", "alan", "--to=shared-b"}, []string{"applied: alan assigned to shared-b", "returned no operation id"}},
+		{[]string{"user", "unassign", "ada"}, []string{"applied: ada unassigned from shared-a", "returned no operation id"}},
+		{[]string{"user", "delete", "alan"}, []string{"applied: alan scheduled for deletion", "suspension operation op-suspend", "erasure operation op-erase", "ops inspect op-erase"}},
+	}
+	for _, testCase := range cases {
+		t.Run(strings.Join(testCase.argv, " "), func(t *testing.T) {
+			run := fleet(t, append(append([]string{}, testCase.argv...), "--apply")...)
+			if run.exit != 0 {
+				t.Fatalf("exit %d: %s", run.exit, run.stderr)
+			}
+			for _, want := range testCase.want {
+				expectContains(t, run.stdout, want)
+			}
+			for _, raw := range []string{`"updated"`, `"gatewayProfile"`, `"unassigned"`, `"deletionId"`} {
+				if strings.Contains(run.stdout, raw) {
+					t.Fatalf("printed the raw response:\n%s", run.stdout)
+				}
+			}
+		})
+	}
 }

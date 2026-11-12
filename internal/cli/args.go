@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -15,6 +16,41 @@ const (
 )
 
 type flagSet map[string]flagKind
+
+// flagSpec declares one flag: how it parses and how help describes it.
+type flagSpec struct {
+	name  string
+	kind  flagKind
+	value string
+	help  string
+}
+
+func bare(name, help string) flagSpec { return flagSpec{name: name, kind: bareFlag, help: help} }
+
+func valued(name, value, help string) flagSpec {
+	return flagSpec{name: name, kind: valueFlag, value: value, help: help}
+}
+
+func (f flagSpec) label() string {
+	if f.kind == bareFlag {
+		return "--" + f.name
+	}
+	return "--" + f.name + "=" + f.value
+}
+
+var (
+	globalFlagSpecs = []flagSpec{
+		valued("env", "<name>", "The environment to act on, from your configuration. Required."),
+		bare("no-color", "Print without colour. Setting NO_COLOR does the same."),
+		bare("help", "Show help for a command. -h does the same."),
+	}
+	mutatingFlagSpecs = []flagSpec{
+		bare("apply", "Send the change. Without it, the Admin API only checks the change."),
+		bare("offline", "Print the request without asking the Admin API to check it."),
+		valued("idempotency-key", "<key>", "Send this Idempotency-Key, so a retry changes nothing twice."),
+	}
+	formatFlag = valued("format", "text|json", "Print text for people, or JSON for scripts.")
+)
 
 type parsedFlag struct {
 	value    string
@@ -53,16 +89,27 @@ func parseArgs(argv []string) (parsedArgs, error) {
 	return parsed, nil
 }
 
+// flagSpecs are the command's own flags, then the flags every mutation takes,
+// then --format for every command that prints data.
+func (c *command) flagSpecs() []flagSpec {
+	specs := append([]flagSpec{}, c.flags...)
+	if c.mutating {
+		specs = append(specs, mutatingFlagSpecs...)
+	}
+	if c.printsData() && !slices.ContainsFunc(specs, func(f flagSpec) bool { return f.name == formatFlag.name }) {
+		specs = append(specs, formatFlag)
+	}
+	return specs
+}
+
+func (c *command) printsData() bool { return !c.standalone && !c.messagesOnly }
+
 func (c *command) acceptedFlags() flagSet {
 	accepted := flagSet{}
-	for name, kind := range c.flags {
-		accepted[name] = kind
+	for _, spec := range append(c.flagSpecs(), globalFlagSpecs...) {
+		accepted[spec.name] = spec.kind
 	}
-	if c.mutating {
-		accepted["apply"] = bareFlag
-		accepted["offline"] = bareFlag
-		accepted["idempotency-key"] = valueFlag
-	}
+	delete(accepted, "help")
 	return accepted
 }
 
@@ -77,12 +124,12 @@ func (c *command) validate(parsed parsedArgs, args []string) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if name == "env" {
-			continue
-		}
 		if err := checkFlag(c, name, parsed.flags[name], accepted); err != nil {
 			return err
 		}
+	}
+	if format := parsed.flags["format"].value; parsed.has("format") && format != formatText && format != formatJSON {
+		return fmt.Errorf("--format must be text or json, got %q", format)
 	}
 	if parsed.has("apply") && parsed.has("offline") {
 		return errors.New("--offline prints a request without sending it, so it cannot be combined with --apply")
@@ -98,7 +145,10 @@ func (c *command) validate(parsed parsedArgs, args []string) error {
 func checkFlag(c *command, name string, flag parsedFlag, accepted flagSet) error {
 	kind, ok := accepted[name]
 	if !ok {
-		return fmt.Errorf("%s does not accept --%s", c.name(), name)
+		if suggestion := suggestFlag(name, accepted); suggestion != "" {
+			return advise(fmt.Errorf("%s does not accept --%s", c.name(), name), "did you mean --"+suggestion+"?")
+		}
+		return advise(fmt.Errorf("%s does not accept --%s", c.name(), name), "run `octogee-fleet help "+c.name()+"` for its flags")
 	}
 	if kind == bareFlag && flag.hasValue {
 		return fmt.Errorf("--%s takes no value", name)

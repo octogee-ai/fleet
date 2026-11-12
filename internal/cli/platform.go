@@ -1,23 +1,63 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
 
 var platformCommands = []*command{
-	{path: words("ops ls"), usage: "[--status=<status>] [--limit=<n>]", summary: "List operations from the journal.", flags: flagSet{"status": valueFlag, "limit": valueFlag}, run: opsList},
-	{path: words("ops inspect"), usage: "<operation>", argc: 1, summary: "Show one operation's steps and outcome.", run: opsInspect},
-	{path: words("builds ls"), usage: "[--service=<service>] [--limit=<n>]", summary: "List builds.", flags: flagSet{"service": valueFlag, "limit": valueFlag}, run: buildsList},
-	{path: words("release status"), summary: "Show release convergence across the fleet.", run: releaseStatus},
-	{path: words("pool show"), summary: "Show the shared-gateway placement pool.", run: poolShow},
-	{path: words("logs"), usage: "[--level=<level>] [--service=<names>] [--user=<names>] [--migration=<id>] [--gateway=<gateway>] [--since=<age>] [--no-follow] [--format=text|json]", summary: "Tail shared-gateway and VM-gateway logs together.", flags: flagSet{"level": valueFlag, "service": valueFlag, "user": valueFlag, "migration": valueFlag, "gateway": valueFlag, "since": valueFlag, "no-follow": bareFlag, "format": valueFlag}, run: logs},
+	{
+		path: words("ops ls"), usage: "[--status=<status>] [--limit=<n>]", summary: "List operations from the journal.",
+		flags: []flagSpec{
+			valued("status", "<status>", "Only operations with this status, such as failed, or unresolved."),
+			valued("limit", "<n>", "List at most n operations."),
+		},
+		examples: []string{"", "--status=failed --limit=10"},
+		run:      opsList,
+	},
+	{
+		path: words("ops inspect"), usage: "<operation>", argc: 1, summary: "Show one operation's steps and outcome.",
+		examples: []string{"<operation>"},
+		run:      opsInspect,
+	},
+	{
+		path: words("builds ls"), usage: "[--service=<service>] [--limit=<n>]", summary: "List builds.",
+		flags: []flagSpec{
+			valued("service", "<service>", "The image whose builds to list; the Admin API names the ones it accepts."),
+			valued("limit", "<n>", "List at most n builds."),
+		},
+		examples: []string{"", "--limit=5"},
+		run:      buildsList,
+	},
+	{
+		path: words("release status"), summary: "Show release convergence across the fleet.",
+		examples: []string{""},
+		run:      releaseStatus,
+	},
+	{
+		path: words("logs"), usage: "[--level=<level>] [--service=<names>] [--user=<names>] [--migration=<id>] [--gateway=<gateway>] [--since=<age>] [--no-follow] [--format=text|json]", summary: "Tail shared-gateway and VM-gateway logs together.",
+		flags: []flagSpec{
+			valued("level", "<level>", "The lowest severity to show, such as warn or error."),
+			valued("service", "<names>", "Only these services, separated by commas."),
+			valued("user", "<names>", "Only these users, separated by commas."),
+			valued("migration", "<id>", "Only this migration."),
+			valued("gateway", "<gateway>", "Only this gateway."),
+			valued("since", "<age>", "How far back to read, such as 30m or 2h. Needs --no-follow."),
+			bare("no-follow", "Print what is there and stop, instead of following new lines."),
+			valued("format", "text|json", "Print lines for people, or the Admin API's JSON lines."),
+		},
+		examples: []string{"--gateway=shared-a --level=warn", "--no-follow --since=30m --user=ada"},
+		run:      logs,
+	},
 }
 
 func limitedQuery(i *invocation, filter string) (url.Values, error) {
@@ -35,27 +75,59 @@ func limitedQuery(i *invocation, filter string) (url.Values, error) {
 	return query, nil
 }
 
+// operationView is an operation or an audit from the journal.
+type operationView struct {
+	ID          string         `json:"id"`
+	Kind        string         `json:"kind"`
+	What        string         `json:"what"`
+	Status      string         `json:"status"`
+	CreatedBy   string         `json:"createdBy"`
+	CreatedAt   instant        `json:"createdAt"`
+	CompletedAt instant        `json:"completedAt"`
+	GatewayID   string         `json:"gatewayId"`
+	Target      map[string]any `json:"target"`
+	Error       any            `json:"error"`
+	Steps       []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Error  any    `json:"error"`
+	} `json:"steps"`
+}
+
+// label is the operation's kind, or what an audit without a kind did. A
+// compact label has hyphens for spaces, for piped tables.
+func (o operationView) label(compact bool) string {
+	switch {
+	case o.Kind != "":
+		return o.Kind
+	case compact:
+		return dash(strings.ReplaceAll(strings.TrimSpace(o.What), " ", "-"))
+	}
+	return dash(o.What)
+}
+
 func opsList(i *invocation) error {
 	query, err := limitedQuery(i, "status")
 	if err != nil {
 		return err
 	}
 	var response struct {
-		Operations []struct {
-			ID        string `json:"id"`
-			Kind      string `json:"kind"`
-			Status    string `json:"status"`
-			CreatedBy string `json:"createdBy"`
-		} `json:"operations"`
+		Operations []operationView `json:"operations"`
 	}
-	if err := i.admin.Get(i.ctx, admin.Path("operations"), query, &response); err != nil {
+	raw, err := i.read(admin.Path("operations"), query, &response)
+	if err != nil {
 		return err
+	}
+	if i.json {
+		return i.printJSON(raw)
 	}
 	rows := make([][]string, 0, len(response.Operations))
 	for _, operation := range response.Operations {
-		rows = append(rows, []string{operation.ID, dash(operation.Kind), dash(operation.Status), dash(operation.CreatedBy)})
+		rows = append(rows, []string{
+			i.style.bold(operation.ID), operation.label(!i.style.glyphs), i.style.state(operation.Status), dash(operation.CreatedBy), i.ago(operation.CreatedAt),
+		})
 	}
-	writeTable(i.out, []string{"id", "kind", "status", "by"}, rows)
+	i.table([]string{"id", "kind", "status", "by", "created"}, rows, "no operations")
 	return nil
 }
 
@@ -64,21 +136,81 @@ func buildsList(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	var response map[string]any
-	if err := i.admin.Get(i.ctx, admin.Path("builds"), query, &response); err != nil {
+	var response struct {
+		Builds []struct {
+			Tag      string  `json:"tag"`
+			PushedAt instant `json:"pushedAt"`
+			Digest   string  `json:"digest"`
+		} `json:"builds"`
+	}
+	raw, err := i.read(admin.Path("builds"), query, &response)
+	if err != nil {
 		return err
 	}
-	return i.printJSON(response["builds"])
+	if i.json {
+		return i.printJSON(raw)
+	}
+	rows := make([][]string, 0, len(response.Builds))
+	for _, build := range response.Builds {
+		rows = append(rows, []string{i.style.bold(dash(build.Tag)), i.ago(build.PushedAt), i.style.dim(shortDigest(build.Digest))})
+	}
+	i.table([]string{"tag", "pushed", "digest"}, rows, "no builds")
+	return nil
+}
+
+// shortDigest keeps an image digest's algorithm and its first 12 hex digits.
+func shortDigest(digest string) string {
+	algorithm, hex, found := strings.Cut(digest, ":")
+	if !found {
+		return dash(shortSHA(digest))
+	}
+	return algorithm + ":" + shortSHA(hex)
 }
 
 func opsInspect(i *invocation) error {
 	var response struct {
-		Operation map[string]any `json:"operation"`
+		Operation operationView `json:"operation"`
 	}
-	if err := i.admin.Get(i.ctx, admin.Path("operations", i.args[0]), nil, &response); err != nil {
+	raw, err := i.read(admin.Path("operations", i.args[0]), nil, &response)
+	if err != nil {
 		return err
 	}
-	return i.printJSON(response.Operation)
+	if i.json {
+		return i.printJSON(raw)
+	}
+	operation := response.Operation
+	i.line(i.style.bold(operation.ID) + "  " + operation.label(false))
+	what := ""
+	if operation.Kind != "" {
+		what = operation.What
+	}
+	failure := ""
+	if operation.Error != nil {
+		failure = i.style.red(fieldText(operation.Error))
+	}
+	i.fields([]field{
+		{"status", i.style.dot(operation.Status)},
+		{"what", what},
+		{"by", operation.CreatedBy},
+		{"created", i.stamp(operation.CreatedAt)},
+		{"completed", i.stamp(operation.CompletedAt)},
+		{"gateway", operation.GatewayID},
+		{"target", fieldList(operation.Target)},
+		{"error", failure},
+	})
+	if len(operation.Steps) > 0 {
+		i.line("")
+		rows := make([][]string, 0, len(operation.Steps))
+		for _, step := range operation.Steps {
+			problem := ""
+			if step.Error != nil {
+				problem = i.style.red(fieldText(step.Error))
+			}
+			rows = append(rows, []string{step.Name, i.style.state(step.Status), problem})
+		}
+		i.table([]string{"step", "status", "error"}, rows, "")
+	}
+	return nil
 }
 
 func releaseStatus(i *invocation) error {
@@ -97,18 +229,22 @@ func releaseStatus(i *invocation) error {
 			Status    string `json:"observation"`
 		} `json:"gateways"`
 	}
-	if err := i.admin.Get(i.ctx, admin.Path("release-status"), nil, &response); err != nil {
+	raw, err := i.read(admin.Path("release-status"), nil, &response)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(i.out, "%s: %d of %d serving gateways converged\n", dash(response.Summary.Status), response.Summary.Converged, response.Summary.Serving)
+	if i.json {
+		return i.printJSON(raw)
+	}
+	i.line(fmt.Sprintf("%s: %d of %d serving gateways converged", i.style.dot(response.Summary.Status), response.Summary.Converged, response.Summary.Serving))
 	if len(response.Summary.Blockers) > 0 {
-		fmt.Fprintf(i.out, "outstanding: %s\n", strings.Join(response.Summary.Blockers, "; "))
+		i.warn("outstanding: " + strings.Join(response.Summary.Blockers, "; "))
 	}
 	rows := make([][]string, 0, len(response.Gateways))
 	for _, gateway := range response.Gateways {
-		rows = append(rows, []string{gateway.GatewayID, release(gateway.Desired), release(gateway.Live), release(gateway.Runtime), dash(gateway.Status)})
+		rows = append(rows, []string{i.style.bold(gateway.GatewayID), release(gateway.Desired), release(gateway.Live), release(gateway.Runtime), i.style.state(gateway.Status)})
 	}
-	writeTable(i.out, []string{"gateway", "desired", "live", "runtime", "status"}, rows)
+	i.table([]string{"gateway", "desired", "live", "runtime", "status"}, rows, "no gateways")
 	return nil
 }
 
@@ -119,57 +255,62 @@ func release(value *int) string {
 	return strconv.Itoa(*value)
 }
 
-func poolShow(i *invocation) error {
-	directory, err := i.placement()
-	if err != nil {
-		return err
-	}
-	config := directory.Config
-	fmt.Fprintf(i.out, "default gateway: %s\n", dash(config.DefaultGatewayID))
-	fmt.Fprintf(i.out, "shared pool: %s\n", dash(strings.Join(config.SharedGatewayIDs, ", ")))
-	rows := make([][]string, 0, len(directory.Gateways))
-	for _, gateway := range directory.Gateways {
-		rows = append(rows, []string{
-			gateway.GatewayID, dash(gateway.GatewayClass), dash(gateway.DesiredStatus),
-			strconv.Itoa(gateway.AssignedCount), strconv.Itoa(gateway.MountedCount), strconv.Itoa(gateway.DriftCount),
-		})
-	}
-	writeTable(i.out, []string{"gateway", "class", "desired", "assigned", "mounted", "mismatched"}, rows)
-	return nil
-}
+// historyLimit is how long logs --no-follow waits for the Admin API to read
+// the history before it stops.
+const historyLimit = 2 * time.Minute
 
 func logs(i *invocation) error {
-	format := i.value("format")
-	if i.has("format") && format != "text" && format != "json" {
-		return fmt.Errorf("--format must be text or json, got %q", format)
-	}
 	query := url.Values{}
 	for _, name := range []string{"level", "service", "user", "migration", "gateway", "since"} {
 		if i.has(name) {
 			query.Set(name, i.value(name))
 		}
 	}
+	ctx, limit := i.ctx, time.Duration(0)
 	if i.has("no-follow") {
 		query.Set("follow", "false")
+		limit = i.runtime.historyLimit
+		if limit == 0 {
+			limit = historyLimit
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, limit)
+		defer cancel()
 	}
-	return i.admin.Stream(i.ctx, admin.Request{Method: http.MethodGet, Path: admin.Path("logs"), Query: query}, func(line []byte) error {
-		fmt.Fprintln(i.out, renderLogLine(line, format))
+	err := i.admin.Stream(ctx, admin.Request{Method: http.MethodGet, Path: admin.Path("logs"), Query: query}, func(line []byte) error {
+		i.logLine(line)
 		return nil
 	})
+	if errors.Is(err, context.DeadlineExceeded) && i.ctx.Err() == nil {
+		return advise(fmt.Errorf("stopped after %s: the Admin API had not finished reading the history, so older entries may not have been read", limit), "shorten --since or add a filter such as --gateway, --service or --level")
+	}
+	return err
 }
 
-func renderLogLine(line []byte, format string) string {
-	if format == "json" {
-		return string(line)
+type logEntry struct {
+	Timestamp string `json:"timestamp"`
+	Severity  string `json:"severity"`
+	Service   string `json:"service"`
+	Message   string `json:"message"`
+	Details   struct {
+		Truncated bool `json:"truncated"`
+	} `json:"details"`
+}
+
+// logLine prints one line of the log stream. The Admin API marks a history it
+// did not read to the end with a truncated entry; that becomes a warning.
+func (i *invocation) logLine(line []byte) {
+	var entry logEntry
+	parsed := json.Unmarshal(line, &entry) == nil
+	if parsed && entry.Details.Truncated {
+		i.notice("older entries in this window were not read; shorten --since or add a filter")
 	}
-	var entry struct {
-		Timestamp string `json:"timestamp"`
-		Severity  string `json:"severity"`
-		Service   string `json:"service"`
-		Message   string `json:"message"`
+	switch {
+	case i.json:
+		i.raw(string(line))
+	case !parsed:
+		i.line(string(line))
+	case !entry.Details.Truncated:
+		i.line(fmt.Sprintf("%s %s %s %s", i.style.dim(entry.Timestamp), i.style.toned(toneOf(entry.Severity), entry.Severity), i.style.cyan(entry.Service), entry.Message))
 	}
-	if err := json.Unmarshal(line, &entry); err != nil {
-		return string(line)
-	}
-	return fmt.Sprintf("%s %s %s %s", entry.Timestamp, entry.Severity, entry.Service, entry.Message)
 }

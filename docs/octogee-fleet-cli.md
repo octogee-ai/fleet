@@ -30,9 +30,15 @@ The platform runs OpenClaw gateways for its users:
 - **`--offline`** prints the request without sending a dry run. The command's reads still run. It cannot be combined with `--apply`.
 - **An Admin API that does not answer dry runs is never sent one.** Such a server would ignore the marker and apply the request, so `octogee-fleet` sends a dry run only after a read in the same command showed that the server supports it. Otherwise it prints the request and says that it was not checked.
 - **`--idempotency-key=<key>`** becomes the request's `Idempotency-Key` header. A retried command with the same key changes nothing twice.
-- **Applied mutations are journaled.** The command prints the operation id the Admin API returns.
+- **Applied mutations are journaled.** The command says what changed and prints the operation ids the Admin API returns, with the command to follow the first one. `gateway park`, `gateway resume`, `user assign` and `user unassign` return no id; the command says so and points at `ops ls`.
 - **Break glass takes two flags.** Replacing a VM in a way that loses boot-disk data needs `--force --accept-boot-data-loss`; either flag alone is refused.
-- **Refusals send no mutation and exit non-zero.** That covers an unknown command, an unknown or repeated flag, an unknown user or gateway, and a malformed commit sha. Flags are written `--name=value` or `--name`.
+- **Refusals send no mutation and exit non-zero.** That covers an unknown command, an unknown or repeated flag, an unknown user or gateway, and a malformed commit sha. Flags are written `--name=value` or `--name`. A mistyped command or flag gets a suggestion.
+- **Errors name the status and the server's code.** A `403` is reported as not permitted, with the Admin API's code, rather than as a rejected sign-in. Each error says what to try next.
+- **Text for people, JSON for scripts.** At a terminal, text is coloured, states carry marks, and times are relative. Piped text has the same columns without colour or marks, prints times as absolute RFC 3339 in UTC, and keeps each cell free of spaces where it can: a VM state reads `suspended(idle)` and an audit's kind reads `update-gateway-desired-configuration`. `NO_COLOR` or `--no-color` drops the colour; `FORCE_COLOR` or `CLICOLOR_FORCE` keeps the terminal output when piped. Every command that prints data takes `--format=json`: a read prints the Admin API's response with absolute times, and a mutation prints `{"dryRun", "checked", "request", "plans"}` for a dry run or `{"dryRun": false, "request", "response"}` once applied. A change already in place prints `{"unchanged": true, "reason"}`. JSON is never decorated, and warnings go to stderr.
+- **Text from the Admin API cannot drive the terminal.** In text output, control characters and invisible format characters in any string the Admin API returns, such as an escape or a right-to-left override, are printed as visible escapes like `\x1b` or `\u202e`. Text is escaped only as it is written: the ids and names a command matches and sends are used exactly as the Admin API sent them, and one-time passwords are printed as sent. JSON output carries the strings as the Admin API sent them.
+- **A field shown only for reading never blocks a command.** A display field the command cannot read is shown as it arrived, or as `?`. Only the fields a command acts on, such as a gateway's id, class, desired status and owner, must be well formed.
+- **A read that could not finish exits non-zero.** `gateway ls` and `user inspect` read each isolated gateway's VM state, four at a time. If one of those reads fails, or the command is interrupted, they print what they read with a warning for each gateway they could not read, then exit non-zero with `could not read the VM state of N of M isolated gateways`.
+- **Help is built in.** `octogee-fleet help`, `octogee-fleet help <noun>` and `octogee-fleet help <command>` or `<command> --help` print the commands, flags and examples. `show` is an alias of `inspect`.
 - **`<user>`** is a user's name or id. **`<gateway>`** is a gateway id. `gw` is short for `gateway`.
 
 Requests below are relative to `/api/admin`.
@@ -50,8 +56,8 @@ These talk to the environment's OIDC issuer, not the Admin API.
 
 | Command | What it does | Request |
 | --- | --- | --- |
-| `gateway ls [--all]` | Lists gateways with status, version, mounted users and last heartbeat. `--all` includes retired gateways. | `GET /gateways` |
-| `gateway inspect <gateway>` | Full diagnostic for one gateway | `GET /gateways`, `GET /gateways/<gateway>/details` |
+| `gateway ls [--all]` | Lists gateways with status, the VM state of each isolated gateway, version, mounted users and last heartbeat. `--all` includes retired gateways. | `GET /gateways`, then `GET /gateways/<gateway>/details` for each isolated gateway that is not retired |
+| `gateway inspect <gateway>` | Shows one gateway's state, release, VM, pods, last error, mounted users and recent operations | `GET /gateways?all=true`, `GET /gateways/<gateway>/details` |
 | `gateway add --id=<id> [--sha=<full-sha>]` | Adds a shared gateway on an existing immutable build, or on the build the platform is running when `--sha` is omitted. The operator owns it: no automation replaces, drains or retires it. | `POST /gateways` |
 | `gateway deploy <gateway> --sha=<full-sha>` | Deploys an existing immutable build to one gateway | `POST /gateways/<gateway>/deploy` |
 | `gateway restart <gateway>` | Restarts the gateway | `POST /gateways/<gateway>/restart` |
@@ -69,8 +75,8 @@ A shared gateway stays on the build it was added on, and the Admin API refuses `
 | Command | What it does | Request |
 | --- | --- | --- |
 | `user ls [--gateway=<gateway>]` | Lists users and their placement, and reports drift in both directions | `GET /placement` |
-| `user inspect <user>` | Full diagnostic for one user | `GET /placement` |
-| `user add <name> --email=<address>` | Creates a user and admits them. The platform places them on a gateway and provisions chat and git. Refuses a taken name. | `POST /users` |
+| `user inspect <user>` | Shows one user's placement, provisioning and drift, and their isolated gateway with its VM state | `GET /placement`, `GET /gateways`, then `GET /gateways/<gateway>/details` for each isolated gateway the user owns |
+| `user add <name> --email=<address>` | Creates a user and admits them. The platform places no user by itself: the operator places them with `user assign`, and a product built on top of the platform may place users itself. Refuses a taken name. | `POST /users` |
 | `user issue-passwords <user>` | Sets new random chat and git passwords and prints them once. Run it after `user inspect` shows provisioning `complete`, and again if a password is lost. Refuses a user who has not finished provisioning. | `POST /users/<id>/one-time-passwords` |
 | `user assign <user> --to=<gateway>` | Places a user who has no gateway. Refuses a parked gateway and another user's isolated gateway. | `POST /users/<id>/assign` |
 | `user migrate <user> --to=<gateway> [--source-transfer=retained-pod]` | Moves a placed user to another gateway as a journaled migration | `POST /users/<id>/migrate` |
@@ -78,15 +84,48 @@ A shared gateway stays on the build it was added on, and the Admin API refuses `
 | `user unassign <user>` | Removes a user's placement | `POST /users/<id>/unassign` |
 | `user replace-vm <user> [--force --accept-boot-data-loss]` | Replaces the VM of the user's isolated gateway | `POST /users/<id>/vm/replace` |
 | `user delete <user> [--erase-now]` | Schedules the user's deletion; `--erase-now` erases at once | `POST /users/<id>/delete` |
-| `user broker <user>` | Shows the user's model broker diagnostics | `GET /users/<id>/broker-diagnostics` |
+| `user broker <user>` | Shows the user's model broker usage by window; `--format=json` adds daily usage by model, the token breakdown and recent calls | `GET /users/<id>/broker-diagnostics` |
 
 ## Platform commands
 
 | Command | What it does | Request |
 | --- | --- | --- |
-| `ops ls [--status=] [--limit=]` | Lists operations from the journal | `GET /operations` |
-| `ops inspect <operation>` | Shows one operation's steps and failure reason | `GET /operations/<operation>` |
-| `builds ls [--service=] [--limit=]` | Lists builds | `GET /builds` |
+| `ops ls [--status=] [--limit=]` | Lists operations and audits from the journal. An audit without a kind is named by what it did. | `GET /operations` |
+| `ops inspect <operation>` | Shows one operation's fields, steps and failure reason. `ops show` is the same command. | `GET /operations/<operation>` |
+| `builds ls [--service=] [--limit=]` | Lists builds with their tag, push time and digest | `GET /builds` |
 | `release status` | Shows release convergence across the fleet | `GET /release-status` |
-| `pool show` | Shows the shared-gateway placement pool | `GET /placement` |
-| `logs [--level=] [--service=] [--user=] [--migration=] [--gateway=] [--since=] [--no-follow] [--format=text\|json]` | Tails shared-gateway and VM-gateway logs together | `GET /logs` |
+| `logs [--level=] [--service=] [--user=] [--migration=] [--gateway=] [--since=] [--no-follow] [--format=text\|json]` | Tails shared-gateway and VM-gateway logs together. With `--no-follow` it stops after two minutes if the Admin API has not finished, and says when older entries in the window were not read. | `GET /logs` |
+
+## Shell commands
+
+| Command | What it does | Request |
+| --- | --- | --- |
+| `completion bash\|fish\|zsh` | Prints a completion script for commands and flags. It needs no `--env`. | None |
+
+## JSON output
+
+With `--format=json`, each read prints one JSON document on stdout:
+
+| Command | Prints |
+| --- | --- |
+| `gateway ls` | `{"gateways": [summary]}`, the Admin API's gateway summaries. It reads no VM states. |
+| `gateway inspect` | `{"gateway": summary, "details": details}` |
+| `gateway releases` | The Admin API's response |
+| `user ls` | `{"users": [user]}`, the Admin API's placement records, filtered by `--gateway` |
+| `user inspect` | `{"user": user, "isolatedGateways": [{"gateway": summary, "vm": vm}], "errors": [{"gatewayId", "error"}]}`. `vm` is the details' `control.vm`, or `null` when it could not be read, and `errors` says why. |
+| `user broker` | The Admin API's broker diagnostics |
+| `ops ls` | The Admin API's response: `{"operations", "generatedAt"}` |
+| `ops inspect` | The Admin API's response: `{"operation": operation}` |
+| `builds ls` | The Admin API's response: `{"service", "builds": [{"tag", "pushedAt", "digest"}], "generatedAt"}` |
+| `release status` | The Admin API's response: `{"summary", "defaultGatewayId", "defaultSelection", "gateways"}` |
+| `logs` | One JSON log entry per line |
+
+Three reads printed JSON of a different shape before `--format` existed, when they printed JSON by default:
+
+| Command | Before | Now |
+| --- | --- | --- |
+| `ops inspect` | The operation object alone | `{"operation": operation}` |
+| `builds ls` | The `builds` array alone | `{"service", "builds", "generatedAt"}` |
+| `user inspect` | `{"id", "name", "assignedGatewayId", "mountedGatewayId", "provisioningStatus", "driftState"}`, followed by a line of text when the user drifted | `{"user", "isolatedGateways", "errors"}`, where `user` is the whole placement record, `driftState` included |
+
+`gateway inspect` and `user broker` keep their shapes. All five now print text unless `--format=json` is given.

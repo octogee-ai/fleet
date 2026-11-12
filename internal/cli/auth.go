@@ -10,8 +10,8 @@ import (
 )
 
 var authCommands = []*command{
-	{path: words("login"), summary: "Sign in to the environment's OIDC issuer.", run: login},
-	{path: words("logout"), summary: "Forget this environment's sign-in.", run: logout},
+	{path: words("login"), summary: "Sign in to the environment's OIDC issuer.", examples: []string{""}, messagesOnly: true, run: login},
+	{path: words("logout"), summary: "Forget this environment's sign-in.", examples: []string{""}, messagesOnly: true, run: logout},
 }
 
 func sessionStore(runtime Runtime) (oidc.Store, error) {
@@ -39,11 +39,13 @@ func login(i *invocation) error {
 		return err
 	}
 	session, err := oidcClient(i.environment, i.runtime).Login(i.ctx, func(code oidc.DeviceCode) {
-		fmt.Fprintf(i.out, "Open %s and enter the code %s\n", code.VerificationURI, code.UserCode)
+		i.line(fmt.Sprintf("Open %s and enter the code %s", i.style.cyan(code.VerificationURI), i.style.bold(code.UserCode)))
 		if code.VerificationURIComplete != "" {
-			fmt.Fprintf(i.out, "Or open %s\n", code.VerificationURIComplete)
+			i.line("Or open " + i.style.cyan(code.VerificationURIComplete))
 		}
+		i.waiting.start("Waiting for you to approve the sign-in in a browser…")
 	})
+	i.waiting.end()
 	if err != nil {
 		return err
 	}
@@ -51,7 +53,7 @@ func login(i *invocation) error {
 	if err := store.Save(i.name, session); err != nil {
 		return err
 	}
-	fmt.Fprintf(i.out, "signed in to %s as %s\n", i.name, session.Identity())
+	i.ok(fmt.Sprintf("signed in to %s as %s", i.name, i.style.bold(session.Identity())))
 	return nil
 }
 
@@ -63,7 +65,7 @@ func logout(i *invocation) error {
 	if err := store.Delete(i.name); err != nil {
 		return err
 	}
-	fmt.Fprintf(i.out, "signed out of %s\n", i.name)
+	i.ok("signed out of " + i.name)
 	return nil
 }
 

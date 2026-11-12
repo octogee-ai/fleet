@@ -11,7 +11,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -70,34 +72,61 @@ func Path(segments ...string) string {
 	return apiPrefix + "/" + strings.Join(escaped, "/")
 }
 
-// HTTPError is a non-2xx Admin API response.
+// HTTPError is a non-2xx Admin API response. Code is the server's
+// machine-readable reason, when it gave one.
 type HTTPError struct {
 	Status  int
+	Code    string
 	Message string
 }
 
-func (e *HTTPError) Error() string {
-	if e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden {
-		return fmt.Sprintf("the Admin API rejected this sign-in (%d): %s", e.Status, e.Message)
+// Label is the status and the server's code, such as "409 user-not-active".
+func (e *HTTPError) Label() string {
+	if e.Code == "" {
+		return strconv.Itoa(e.Status)
 	}
-	return fmt.Sprintf("the Admin API returned %d: %s", e.Status, e.Message)
+	return fmt.Sprintf("%d %s", e.Status, e.Code)
 }
 
-// Client calls one environment's Admin API as the operator.
+func (e *HTTPError) Error() string {
+	switch {
+	case e.Status == http.StatusUnauthorized:
+		return fmt.Sprintf("the Admin API rejected this sign-in (%s): %s", e.Label(), e.Message)
+	case e.Status == http.StatusForbidden:
+		return fmt.Sprintf("not permitted (%s): %s", e.Label(), e.Message)
+	case e.Status == http.StatusNotFound:
+		return fmt.Sprintf("not found (%s): %s", e.Label(), e.Message)
+	case e.Status >= 500:
+		return fmt.Sprintf("the Admin API failed (%s): %s", e.Label(), e.Message)
+	case e.Status >= 400:
+		return fmt.Sprintf("the Admin API refused this request (%s): %s", e.Label(), e.Message)
+	}
+	return fmt.Sprintf("the Admin API returned %s: %s", e.Label(), e.Message)
+}
+
+// Client calls one environment's Admin API as the operator. It is safe for
+// concurrent reads.
 type Client struct {
 	Origin string
 	HTTP   Doer
 	Token  func(context.Context) (string, error)
 
+	mutex        sync.Mutex
 	token        string
 	capabilities map[string]bool
 }
 
 // Supports reports whether a response so far advertised the capability. An
 // Admin API that does not know a capability ignores its request marker.
-func (c *Client) Supports(capability string) bool { return c.capabilities[capability] }
+func (c *Client) Supports(capability string) bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.capabilities[capability]
+}
 
 func (c *Client) observe(header http.Header) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	for _, value := range header.Values(capabilitiesHeader) {
 		for _, name := range strings.Split(value, ",") {
 			if name = strings.TrimSpace(name); name != "" {
@@ -176,7 +205,8 @@ func (c *Client) open(ctx context.Context, request Request) (*http.Response, err
 	if readErr != nil {
 		return nil, fmt.Errorf("read the Admin API error: %w", readErr)
 	}
-	return nil, &HTTPError{Status: response.StatusCode, Message: errorMessage(data)}
+	code, message := errorBody(data)
+	return nil, &HTTPError{Status: response.StatusCode, Code: code, Message: message}
 }
 
 func (c *Client) build(ctx context.Context, request Request) (*http.Request, error) {
@@ -209,6 +239,8 @@ func (c *Client) build(ctx context.Context, request Request) (*http.Request, err
 }
 
 func (c *Client) bearer(ctx context.Context) (string, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	if c.token != "" {
 		return c.token, nil
 	}
@@ -220,12 +252,13 @@ func (c *Client) bearer(ctx context.Context) (string, error) {
 	return token, nil
 }
 
-func errorMessage(data []byte) string {
+func errorBody(data []byte) (code, message string) {
 	var payload struct {
+		Code  string `json:"code"`
 		Error string `json:"error"`
 	}
 	if err := json.Unmarshal(data, &payload); err == nil && payload.Error != "" {
-		return payload.Error
+		return payload.Code, payload.Error
 	}
-	return strings.TrimSpace(string(data))
+	return "", strings.TrimSpace(string(data))
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -177,10 +178,129 @@ func TestUserListReportsDriftInBothDirections(t *testing.T) {
 	}
 }
 
+func withUser(name string, change func(*fixtureUser)) fleetFixture {
+	changed := fixture
+	changed.users = append([]fixtureUser{}, fixture.users...)
+	for index := range changed.users {
+		if changed.users[index].name == name {
+			change(&changed.users[index])
+		}
+	}
+	return changed
+}
+
+func TestDriftNamesThePlacementTarget(t *testing.T) {
+	drifted := withUser("ada", func(u *fixtureUser) { u.target = "shared-b" })
+	run := fleetWith(t, drifted, runOptions{}, "user", "ls")
+	expectContains(t, run.stdout, "drift: ada is placed on shared-a but the placement target is shared-b")
+}
+
+func TestPipedDriftLinesKeepTheirText(t *testing.T) {
+	drifted := withUser("ada", func(u *fixtureUser) { u.target = "shared-b" })
+	run := fleetWith(t, drifted, runOptions{}, "user", "ls")
+	if !strings.HasPrefix(lineWith(t, run.stdout, "placement target"), "drift: ada") {
+		t.Fatalf("a piped drift line starts with drift:\n%s", run.stdout)
+	}
+}
+
+func TestDriftNamesWhereAMountedUserIsPlaced(t *testing.T) {
+	drifted := withUser("ada", func(u *fixtureUser) { u.gatewayID, u.target = "shared-b", "shared-b" })
+	run := fleetWith(t, drifted, runOptions{}, "user", "ls")
+	expectContains(t, run.stdout, "drift: ada is mounted on shared-a but placed on shared-b")
+}
+
+func TestDriftNamesAGatewayThatIsGone(t *testing.T) {
+	drifted := withUser("ada", func(u *fixtureUser) { u.gatewayID, u.target = "shared-gone", "shared-gone" })
+	run := fleetWith(t, drifted, runOptions{}, "user", "inspect", "ada")
+	expectContains(t, run.stdout, "drift: ada is placed on shared-gone, which is retired or unknown")
+}
+
 func TestUserInspectIsReadOnly(t *testing.T) {
 	run := fleet(t, "user", "inspect", "grace")
 	expectRead(t, run)
 	expectContains(t, run.stdout, "iso-grace")
+}
+
+func TestUserInspectShowsTheUsersIsolatedGatewayAndItsVM(t *testing.T) {
+	run := fleet(t, "user", "inspect", "grace")
+	if strings.HasPrefix(strings.TrimSpace(run.stdout), "{") {
+		t.Fatalf("expected fields, not JSON:\n%s", run.stdout)
+	}
+	row := lineWith(t, run.stdout, "isolated gateway")
+	expectContains(t, row, "iso-grace")
+	expectContains(t, row, "suspended(idle)")
+}
+
+func TestUserInspectOfAUserWithoutAnIsolatedGatewayReadsNoDetails(t *testing.T) {
+	run := fleet(t, "user", "inspect", "ada")
+	expectRead(t, run)
+	expectContains(t, lineWith(t, run.stdout, "gateway"), "shared-a")
+	if strings.Contains(run.stdout, "isolated gateway") {
+		t.Fatalf("ada has no isolated gateway:\n%s", run.stdout)
+	}
+	for _, request := range run.requests {
+		if strings.HasSuffix(request.Path, "/details") {
+			t.Fatalf("read details: %+v", run.requests)
+		}
+	}
+}
+
+func TestUserInspectInJSONCarriesTheIsolatedGateway(t *testing.T) {
+	document := decodeJSON(t, fleet(t, "user", "inspect", "grace", "--format=json"))
+	gateways := document["isolatedGateways"].([]any)
+	if len(gateways) != 1 || gateways[0].(map[string]any)["vm"].(map[string]any)["status"] != "SUSPENDED" {
+		t.Fatalf("document %+v", document)
+	}
+}
+
+func TestOddUserDisplayFieldsNeverBlockAMutation(t *testing.T) {
+	odd := func(name string, user map[string]any) {
+		if name == "ada" {
+			user["email"] = 7
+			user["latestOperation"] = "op-1"
+			user["policyTargetGatewayId"] = map[string]any{"id": "shared-a"}
+		}
+	}
+	run := fleetWith(t, fixture, runOptions{alterUser: odd}, "user", "migrate", "ada", "--to=shared-b")
+	if run.exit != 0 {
+		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	}
+	run.onlyDryRun(t)
+}
+
+func TestUserInspectFailsWhenTheVMStateCouldNotBeRead(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{detailsFailWith: http.StatusInternalServerError}, "user", "inspect", "grace")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "isolated gateway"), "unknown")
+	expectContains(t, run.stderr, "could not read the VM state of 1 of 1 isolated gateways")
+}
+
+func TestUserInspectInJSONMarksAVMStateThatCouldNotBeRead(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{detailsFailWith: http.StatusInternalServerError}, "user", "inspect", "grace", "--format=json")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	var document map[string]any
+	if err := json.Unmarshal([]byte(run.stdout), &document); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, run.stdout)
+	}
+	entry := document["isolatedGateways"].([]any)[0].(map[string]any)
+	if vm, present := entry["vm"]; !present || vm != nil {
+		t.Fatalf("expected vm: null, got %+v", entry)
+	}
+	errors := document["errors"].([]any)
+	if len(errors) != 1 || errors[0].(map[string]any)["gatewayId"] != "iso-grace" {
+		t.Fatalf("errors %+v", errors)
+	}
+}
+
+func TestAnInterruptWhileReadingTheUsersVMFails(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{interruptDetails: true}, "user", "inspect", "grace")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
 }
 
 func TestUserBrokerIsReadOnly(t *testing.T) {
@@ -191,11 +311,22 @@ func TestUserBrokerIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestUserBrokerListsUsageWindowsAsATable(t *testing.T) {
+	run := fleet(t, "user", "broker", "ada")
+	expectContains(t, run.stdout, "REQUESTS")
+	row := lineWith(t, run.stdout, "2026-11-09T23:00:00Z")
+	for _, want := range []string{"3", "12000", "$0.42"} {
+		expectContains(t, row, want)
+	}
+}
+
 func TestUserAddCreatesTheUserThroughOneRequest(t *testing.T) {
 	run := fleet(t, "user", "add", "lin", "--email=lin@example.com", "--apply")
 	expectApplied(t, run, adminRequest{Method: http.MethodPost, Path: "/api/admin/users", Body: map[string]any{"name": "lin", "email": "lin@example.com"}})
+	expectContains(t, run.stdout, "applied: user lin created")
 	expectContains(t, run.stdout, "op-recorded")
-	expectContains(t, run.stdout, "octogee-fleet user issue-passwords lin --apply")
+	expectContains(t, run.stdout, "octogee-fleet --env=local user assign lin --to=<gateway> --apply")
+	expectContains(t, run.stdout, "octogee-fleet --env=local user issue-passwords lin --apply")
 }
 
 func TestUserAddRequiresAnEmail(t *testing.T) {

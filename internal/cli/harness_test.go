@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -22,6 +23,8 @@ import (
 )
 
 const sha = "0123456789abcdef0123456789abcdef01234567"
+
+var fixedNow = time.Date(2026, 11, 10, 0, 5, 0, 0, time.UTC)
 
 var (
 	signedInToken  = idToken(time.Now().Add(time.Hour))
@@ -46,11 +49,23 @@ const (
 
 type fixtureUser struct {
 	id, name, gatewayID, provisioning string
+	// target is the placement target the Admin API reports; empty means the user's gateway.
+	target string
+	// email defaults to the name at example.test.
+	email string
+}
+
+func (u fixtureUser) address() string {
+	if u.email != "" {
+		return u.email
+	}
+	return u.name + "@example.test"
 }
 
 type fixtureGateway struct {
 	id, class, desired, owner string
 	mounted                   []string
+	vm, stopReason            string
 }
 
 type fleetFixture struct {
@@ -69,7 +84,7 @@ var fixture = fleetFixture{
 	gateways: []fixtureGateway{
 		{id: "shared-a", class: "shared", desired: "running", mounted: []string{"u-ada"}},
 		{id: "shared-b", class: "shared", desired: "running"},
-		{id: "iso-grace", class: "isolated", desired: "running", owner: "u-grace", mounted: []string{"u-grace"}},
+		{id: "iso-grace", class: "isolated", desired: "running", owner: "u-grace", mounted: []string{"u-grace"}, vm: "SUSPENDED", stopReason: "idle"},
 		{id: "shared-parked", class: "shared", desired: "paused"},
 	},
 }
@@ -85,6 +100,8 @@ type recordedRequest struct {
 	adminRequest
 	authorization  string
 	idempotencyKey string
+	// uri is the request target exactly as the command sent it.
+	uri string
 }
 
 type runOptions struct {
@@ -100,6 +117,20 @@ type runOptions struct {
 	refuseDryRunWith int
 	appliesDryRuns   bool
 	plansNothing     bool
+	env              map[string]string
+	errorCode        string
+	refuseApplyWith  int
+	detailsFailWith  int
+	logsHang         bool
+	logsTruncated    bool
+	historyLimit     time.Duration
+	alterSummary     func(id string, summary map[string]any)
+	alterUser        func(name string, user map[string]any)
+	detailsFailFor   string
+	interruptDetails bool
+	errorMessage     string
+	detailsPause     time.Duration
+	chatPassword     string
 }
 
 type fleetRun struct {
@@ -109,6 +140,7 @@ type fleetRun struct {
 	requests    []recordedRequest
 	issuerForms []url.Values
 	sessionPath string
+	detailsPeak int
 }
 
 func (r recordedRequest) isDryRun() bool { return r.Query["dryRun"] == "true" }
@@ -163,9 +195,13 @@ func (r fleetRun) containsRequest(want adminRequest) bool {
 type adminStub struct {
 	fixture fleetFixture
 	options runOptions
+	// interrupt cancels the command's context, as Ctrl-C does.
+	interrupt context.CancelFunc
 
-	mutex    sync.Mutex
-	requests []recordedRequest
+	mutex           sync.Mutex
+	requests        []recordedRequest
+	detailsInFlight int
+	detailsPeak     int
 }
 
 func (s *adminStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +214,7 @@ func (s *adminStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.options.rejectWith != 0 {
-		writeJSON(w, s.options.rejectWith, map[string]any{"error": "token rejected"})
+		writeJSON(w, s.options.rejectWith, s.refusal("token rejected"))
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -190,7 +226,7 @@ func (s *adminStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *adminStub) serveDryRun(w http.ResponseWriter, r *http.Request) {
 	if s.options.refuseDryRunWith != 0 {
-		writeJSON(w, s.options.refuseDryRunWith, map[string]any{"error": "gateway has a current retirement claim"})
+		writeJSON(w, s.options.refuseDryRunWith, s.refusal("gateway has a current retirement claim"))
 		return
 	}
 	if s.options.plansNothing {
@@ -211,6 +247,42 @@ func (s *adminStub) serveDryRun(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *adminStub) refusal(message string) map[string]any {
+	if s.options.errorMessage != "" {
+		message = s.options.errorMessage
+	}
+	body := map[string]any{"error": message}
+	if s.options.errorCode != "" {
+		body["code"] = s.options.errorCode
+	}
+	return body
+}
+
+func (s *adminStub) enterDetails() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.detailsInFlight++
+	s.detailsPeak = max(s.detailsPeak, s.detailsInFlight)
+}
+
+func (s *adminStub) leaveDetails() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.detailsInFlight--
+}
+
+func (s *adminStub) peakDetails() int {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.detailsPeak
+}
+
+func (s *adminStub) recorded() []recordedRequest {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return append([]recordedRequest{}, s.requests...)
+}
+
 func (s *adminStub) lastBody() map[string]any {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -222,8 +294,13 @@ func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
 		s.serveDryRun(w, r)
 		return
 	}
+	if s.options.refuseApplyWith != 0 {
+		writeJSON(w, s.options.refuseApplyWith, s.refusal("a migration is in flight for this gateway"))
+		return
+	}
 	if !strings.HasSuffix(r.URL.Path, "/one-time-passwords") {
-		writeJSON(w, http.StatusAccepted, map[string]any{"operationId": "op-recorded"})
+		status, body := appliedAnswer(r)
+		writeJSON(w, status, body)
 		return
 	}
 	if s.options.omitPasswords {
@@ -232,9 +309,32 @@ func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"operationId": "op-passwords",
-		"chat":        map[string]any{"username": "ada", "password": "chat-secret"},
+		"chat":        map[string]any{"username": "ada", "password": cmp.Or(s.options.chatPassword, "chat-secret")},
 		"git":         map[string]any{"username": "ws-ada", "password": "git-secret"},
 	})
+}
+
+// appliedAnswer is what the Admin API returns for an applied mutation. Not
+// every route returns an operation id.
+func appliedAnswer(r *http.Request) (int, map[string]any) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/")
+	segments := strings.Split(path, "/")
+	switch {
+	case r.Method == http.MethodPatch:
+		return http.StatusAccepted, map[string]any{"gatewayId": segments[1], "updated": []string{"desiredStatus"}}
+	case strings.HasSuffix(path, "/assign"):
+		return http.StatusAccepted, map[string]any{"uid": segments[1], "gatewayId": "shared-b", "gatewayProfile": "shared"}
+	case strings.HasSuffix(path, "/unassign"):
+		return http.StatusOK, map[string]any{"unassigned": true, "uid": segments[1], "from": "shared-a"}
+	case strings.HasSuffix(path, "/delete"):
+		return http.StatusAccepted, map[string]any{
+			"status": "deletion_scheduled", "deletionId": "deletion-1",
+			"suspensionOperationId": "op-suspend", "erasureOperationId": "op-erase",
+		}
+	case path == "users":
+		return http.StatusCreated, map[string]any{"userId": "u-new", "operationId": "op-recorded"}
+	}
+	return http.StatusAccepted, map[string]any{"operationId": "op-recorded"}
 }
 
 func (s *adminStub) record(r *http.Request) {
@@ -242,6 +342,7 @@ func (s *adminStub) record(r *http.Request) {
 		adminRequest:   adminRequest{Method: r.Method, Path: r.URL.Path},
 		authorization:  r.Header.Get("Authorization"),
 		idempotencyKey: r.Header.Get("Idempotency-Key"),
+		uri:            r.RequestURI,
 	}
 	if query := r.URL.Query(); len(query) > 0 {
 		recorded.Query = map[string]string{}
@@ -268,49 +369,155 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 	case path == "placement":
 		writeJSON(w, http.StatusOK, s.placement())
 	case path == "operations":
-		writeJSON(w, http.StatusOK, map[string]any{"operations": []map[string]any{{"id": "op-1", "kind": "deploy", "status": "running"}}})
+		writeJSON(w, http.StatusOK, map[string]any{"operations": []map[string]any{
+			{"id": "op-1", "kind": "deploy", "status": "running", "createdBy": "operator@example.test", "createdAt": minutesAgo(3)},
+			{"id": "audit-1", "recordType": "audit", "what": "update gateway desired configuration", "status": "completed", "createdBy": "operator@example.test", "createdAt": minutesAgo(4)},
+		}})
 	case path == "operations/op-1":
 		writeJSON(w, http.StatusOK, map[string]any{"operation": map[string]any{
-			"id":     "op-1",
-			"kind":   "migrate-customer",
-			"status": "failed",
-			"steps":  []map[string]any{{"name": "quiesce-source", "status": "failed", "error": "source drain timed out"}},
+			"id":        "op-1",
+			"kind":      "migrate-customer",
+			"status":    "failed",
+			"createdBy": "operator@example.test",
+			"createdAt": minutesAgo(3),
+			"gatewayId": "shared-b",
+			"error":     "migration failed at quiesce-source",
+			"steps": []map[string]any{
+				{"name": "reserve-target", "status": "completed"},
+				{"name": "quiesce-source", "status": "failed", "error": "source drain timed out"},
+			},
 		}})
 	case path == "builds":
-		writeJSON(w, http.StatusOK, map[string]any{"builds": []map[string]any{{"tag": "v42"}}})
+		writeJSON(w, http.StatusOK, map[string]any{"service": "gateway", "generatedAt": "2026-11-10T00:05:00Z", "builds": []map[string]any{
+			{"tag": "v42", "pushedAt": "2026-11-09T22:05:00Z", "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+		}})
 	case path == "release-status":
 		writeJSON(w, http.StatusOK, map[string]any{"summary": map[string]any{"status": "converged", "converged": 1, "serving": 1}, "gateways": []map[string]any{{"gatewayId": "shared-a", "desiredRelease": 3, "liveRelease": 3, "observation": "converged"}}})
+	case path == "logs" && s.options.logsHang:
+		<-r.Context().Done()
 	case path == "logs":
 		fmt.Fprintln(w, `{"timestamp":"2026-11-10T00:00:00Z","severity":"WARNING","service":"api","message":"a line from the log stream"}`)
+		if s.options.logsTruncated {
+			fmt.Fprintln(w, `{"timestamp":"2026-11-10T00:00:01Z","severity":"WARNING","service":"fleet","instance":"admin-api","message":"Older entries in this window were not read. Shorten since or add a filter.","details":{"truncated":true}}`)
+		}
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "details":
-		writeJSON(w, http.StatusOK, map[string]any{"recentOperations": []any{}})
+		s.serveDetails(w, r, segments[1])
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "releases":
 		writeJSON(w, http.StatusOK, map[string]any{"releases": []map[string]any{{"release": 3, "imageTag": "v42", "live": true, "desired": true}}})
 	case len(segments) == 3 && segments[0] == "users" && segments[2] == "broker-diagnostics":
-		writeJSON(w, http.StatusOK, map[string]any{"windows": []any{}})
+		writeJSON(w, http.StatusOK, map[string]any{"windows": []map[string]any{
+			{"windowStartMs": minutesAgo(65), "totalTokens": 12000, "requestCount": 3, "costUsd": 0.42},
+		}})
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no route: " + path})
 	}
 }
 
+func (s *adminStub) serveDetails(w http.ResponseWriter, r *http.Request, id string) {
+	if s.options.interruptDetails {
+		s.interrupt()
+		<-r.Context().Done()
+		return
+	}
+	if s.options.detailsPause > 0 {
+		s.enterDetails()
+		defer s.leaveDetails()
+		time.Sleep(s.options.detailsPause)
+	}
+	if s.options.detailsFailWith != 0 && (s.options.detailsFailFor == "" || s.options.detailsFailFor == id) {
+		writeJSON(w, s.options.detailsFailWith, s.refusal("details are unavailable"))
+		return
+	}
+	for _, gateway := range s.fixture.gateways {
+		if gateway.id == id {
+			writeJSON(w, http.StatusOK, s.details(gateway))
+			return
+		}
+	}
+	writeJSON(w, http.StatusNotFound, map[string]any{"error": "Gateway not found", "gatewayId": id})
+}
+
+func (s *adminStub) details(gateway fixtureGateway) map[string]any {
+	mounted := make([]map[string]any, 0, len(gateway.mounted))
+	for _, uid := range gateway.mounted {
+		for _, user := range s.fixture.users {
+			if user.id == uid {
+				mounted = append(mounted, map[string]any{"uid": uid, "slug": user.name, "username": user.name, "email": user.address(), "lastActive": "2026-11-09T23:05:00Z"})
+			}
+		}
+	}
+	var vm any
+	if gateway.vm != "" {
+		vm = map[string]any{
+			"instanceName": "vm-" + gateway.id, "zone": "zone-a", "instanceId": "42", "internalIp": "10.0.0.9",
+			"status": gateway.vm, "startedAt": minutesAgo(90), "provisioningModel": "SPOT",
+			"stopReason": nullable(gateway.stopReason), "updatedAt": minutesAgo(30),
+		}
+	}
+	return map[string]any{
+		"mountedUsers": mounted,
+		"recentOperations": []map[string]any{
+			{
+				"id": "op-9", "kind": "restart-gateway", "status": "completed", "createdBy": "operator@example.test",
+				"createdAt": minutesAgo(20), "startedAt": minutesAgo(20), "completedAt": minutesAgo(19), "input": map[string]any{"gatewayId": gateway.id}, "steps": []any{},
+			},
+		},
+		"control": map[string]any{
+			"desiredStatus": gateway.desired, "desiredRelease": 3, "liveRelease": 3,
+			"gatewayClass": gateway.class, "ownerUid": nullable(gateway.owner), "vm": vm,
+		},
+		"generatedAt": "2026-11-10T00:05:00Z",
+	}
+}
+
+func minutesAgo(minutes int) int64 {
+	return fixedNow.Add(-time.Duration(minutes) * time.Minute).UnixMilli()
+}
+
+// gatewaySummaries have the shape of the Admin API's gateway summaries: mounted
+// users by name, the owner or null, and pod diagnostics by container counts.
 func (s *adminStub) gatewaySummaries() []map[string]any {
 	summaries := make([]map[string]any, 0, len(s.fixture.gateways))
 	for _, gateway := range s.fixture.gateways {
-		summaries = append(summaries, map[string]any{
-			"gatewayId":     gateway.id,
-			"gatewayClass":  gateway.class,
-			"desiredStatus": gateway.desired,
-			"status":        "ready",
-			"imageTag":      "v42",
-			"mountedUsers":  gateway.mounted,
-			"ownerId":       gateway.owner,
-			"lastError":     map[string]any{"message": "ensure failed on " + gateway.id},
+		summary := map[string]any{
+			"gatewayId":       gateway.id,
+			"gatewayClass":    gateway.class,
+			"desiredStatus":   gateway.desired,
+			"status":          "ready",
+			"imageTag":        "v42",
+			"openclawVersion": "2026.11.1",
+			"mountedUsers":    s.namesOf(gateway.mounted),
+			"ownerId":         nullable(gateway.owner),
+			"lastHeartbeatAt": "2026-11-10T00:02:00.000Z",
+			"lastError":       map[string]any{"slug": "ensure", "message": "ensure failed on " + gateway.id, "at": "2026-11-09T23:00:00.000Z"},
 			"podDiagnostics": map[string]any{
-				"pods": []map[string]any{{"name": "pod-" + gateway.id, "ready": true}},
+				"status": "ready", "totalPods": 1, "readyPods": 1, "totalRestarts": 0,
+				"spotPods": 1, "onDemandPods": 0, "unknownCapacityPods": 0,
+				"pods": []map[string]any{{
+					"name": "pod-" + gateway.id, "uid": "pod-uid-" + gateway.id, "replicaSetUid": nil,
+					"phase": "Running", "readyContainers": 2, "totalContainers": 2, "restarts": 0, "reason": nil,
+					"nodeName": "node-a", "instanceId": nil, "nodePool": "nodes-a", "capacityType": "spot", "ageMs": 3600000,
+				}},
 			},
-		})
+		}
+		if s.options.alterSummary != nil {
+			s.options.alterSummary(gateway.id, summary)
+		}
+		summaries = append(summaries, summary)
 	}
 	return summaries
+}
+
+func (s *adminStub) namesOf(ids []string) []string {
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		for _, user := range s.fixture.users {
+			if user.id == id {
+				names = append(names, user.name)
+			}
+		}
+	}
+	return names
 }
 
 func (s *adminStub) mountedOn(userID string) string {
@@ -324,31 +531,54 @@ func (s *adminStub) mountedOn(userID string) string {
 	return ""
 }
 
-func driftState(assigned, mounted string) string {
-	switch {
-	case assigned == mounted:
-		return "healthy"
-	case mounted == "":
-		return "assigned-not-mounted"
-	case assigned == "":
-		return "mounted-orphan"
-	default:
-		return "pointer-drift"
+// driftState mirrors the order in which the Admin API classifies placement.
+func (s *adminStub) driftState(assigned, mounted, target string) string {
+	missing := func(id string) bool {
+		if id == "" {
+			return false
+		}
+		for _, gateway := range s.fixture.gateways {
+			if gateway.id == id {
+				return gateway.desired == "retired"
+			}
+		}
+		return true
 	}
+	switch {
+	case missing(target) || missing(assigned):
+		return "missing-gateway"
+	case assigned != "" && target != "" && assigned != target:
+		return "pointer-drift"
+	case mounted != "" && mounted != assigned:
+		return "mounted-orphan"
+	case assigned != "" && mounted != assigned:
+		return "assigned-not-mounted"
+	}
+	return "healthy"
 }
 
 func (s *adminStub) placement() map[string]any {
 	users := make([]map[string]any, 0, len(s.fixture.users))
 	for _, user := range s.fixture.users {
 		mounted := s.mountedOn(user.id)
-		users = append(users, map[string]any{
-			"id":                 user.id,
-			"name":               user.name,
-			"assignedGatewayId":  nullable(user.gatewayID),
-			"mountedGatewayId":   nullable(mounted),
-			"driftState":         driftState(user.gatewayID, mounted),
-			"provisioningStatus": provisioningOf(user),
-		})
+		target := user.target
+		if target == "" {
+			target = user.gatewayID
+		}
+		record := map[string]any{
+			"id":                    user.id,
+			"name":                  user.name,
+			"email":                 user.address(),
+			"policyTargetGatewayId": nullable(target),
+			"assignedGatewayId":     nullable(user.gatewayID),
+			"mountedGatewayId":      nullable(mounted),
+			"driftState":            s.driftState(user.gatewayID, mounted, target),
+			"provisioningStatus":    provisioningOf(user),
+		}
+		if s.options.alterUser != nil {
+			s.options.alterUser(user.name, record)
+		}
+		users = append(users, record)
 	}
 	gateways := make([]map[string]any, 0, len(s.fixture.gateways))
 	for _, gateway := range s.fixture.gateways {
@@ -480,6 +710,9 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 	}
 	seedSession(t, store, fixture.environment, options.session, binding)
 	environment := map[string]string{"OCTOGEE_FLEET_CONFIG": path, "XDG_STATE_HOME": stateHome}
+	for name, value := range options.env {
+		environment[name] = value
+	}
 	var stdout, stderr bytes.Buffer
 	runtime := Runtime{
 		Stdout:  &stdout,
@@ -487,19 +720,26 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 		Getenv:  func(name string) string { return environment[name] },
 		HTTP:    server.Client(),
 		Sleep:   func(context.Context, time.Duration) error { return nil },
+		Now:     func() time.Time { return fixedNow },
 		Version: "test",
+
+		historyLimit: options.historyLimit,
 	}
 	if options.defaultHTTP {
 		runtime.HTTP = nil
 	}
-	exit := Run(context.Background(), argv, runtime)
+	ctx, interrupt := context.WithCancel(context.Background())
+	defer interrupt()
+	stub.interrupt = interrupt
+	exit := Run(ctx, argv, runtime)
 	return fleetRun{
 		exit:        exit,
 		stdout:      stdout.String(),
 		stderr:      stderr.String(),
-		requests:    stub.requests,
+		requests:    stub.recorded(),
 		issuerForms: issuer.forms,
 		sessionPath: filepath.Join(store.Dir, fixture.environment+".json"),
+		detailsPeak: stub.peakDetails(),
 	}
 }
 

@@ -8,11 +8,11 @@ The bearer is an ID token from an OpenID Connect issuer the platform trusts, whi
 
 ## Errors
 
-A failed request returns a non-2xx status with `{"error": "<message>"}`. `401` means the token is missing, expired or not from a trusted issuer. `403` means it lacks the operator role.
+A failed request returns a non-2xx status with `{"error": "<message>"}`, and a machine-readable `code` where the route has one. `401` means the token is missing, expired or not from a trusted issuer. `403` means the identity may not do this, such as one without the operator role. `octogee-fleet` prints the status and `code` with the message.
 
 ## Mutations
 
-A journaled mutation returns `{"operationId": "<id>"}`.
+A journaled mutation returns `{"operationId": "<id>"}`, and a mutation that starts more than one operation names each in a field ending in `OperationId`, such as `erasureOperationId`. `PATCH /gateways/<gateway>`, `POST /users/<id>/assign` and `POST /users/<id>/unassign` are journaled as audits but return no id.
 
 ## Dry runs
 
@@ -52,13 +52,39 @@ A dry run does not predict checks made while a change is applied, an idempotency
     "imageTag": "v42",
     "openclawVersion": "2026.11.1",
     "mountedUsers": ["ada"],
-    "lastHeartbeatAt": "2026-11-10T00:00:00Z",
+    "lastHeartbeatAt": "2026-11-10T00:00:00.000Z",
     "ownerId": null
   }]
 }
 ```
 
-`gatewayClass` is `shared` or `isolated`. An isolated gateway names its `ownerId`.
+`gatewayClass` is `shared` or `isolated`. An isolated gateway names its `ownerId`. A summary also carries `lastError` (`{"slug", "message", "at"}`) and `podDiagnostics` when the platform has them:
+
+```json
+{
+  "status": "ready", "totalPods": 1, "readyPods": 1,
+  "pods": [{ "name": "<pod>", "phase": "Running", "readyContainers": 2, "totalContainers": 2, "restarts": 0, "reason": null }]
+}
+```
+
+`octogee-fleet` counts a pod as ready when its `phase` is `Running` and every container is ready.
+
+## `GET /gateways/<gateway>/details`
+
+```json
+{
+  "mountedUsers": [{ "uid": "u-ada", "username": "ada", "email": "ada@example.com", "lastActive": "2026-11-10T00:00:00Z" }],
+  "recentOperations": [{ "id": "op-1", "kind": "restart-gateway", "status": "completed", "createdBy": "operator", "createdAt": 1794268800000 }],
+  "control": {
+    "desiredRelease": 3,
+    "liveRelease": 3,
+    "sizingTier": "standard",
+    "vm": { "instanceName": "<name>", "zone": "<zone>", "status": "SUSPENDED", "stopReason": "idle", "provisioningModel": "SPOT", "startedAt": 1794268800000, "updatedAt": 1794268800000 }
+  }
+}
+```
+
+`control.vm` is `null` for a gateway without a VM. `status` is the VM's state as the cloud reports it, such as `RUNNING`, `SUSPENDED` or `TERMINATED`, and `stopReason` is `idle`, `preempted`, `operator` or `null`. `GET /gateways` does not carry the VM, so `gateway ls` reads the details of each isolated gateway. `recentOperations` lists operations journaled against the gateway; audits of operator changes such as a restart or a park are not among them.
 
 ## `POST /gateways`
 
@@ -76,31 +102,21 @@ A shared gateway added this way belongs to the operator: no automation replaces,
 
 ```json
 {
-  "config": {
-    "defaultGatewayId": "shared-a",
-    "sharedGatewayIds": ["shared-a"],
-    "sharedGatewayAutoscaling": { "enabled": true, "usersPerGateway": 40 }
-  },
-  "gateways": [{
-    "gatewayId": "shared-a",
-    "gatewayClass": "shared",
-    "desiredStatus": "running",
-    "assignedCount": 1,
-    "mountedCount": 1,
-    "driftCount": 0
-  }],
   "users": [{
     "id": "u-ada",
     "name": "ada",
+    "email": "ada@example.com",
+    "policyTargetGatewayId": "shared-a",
     "assignedGatewayId": "shared-a",
     "mountedGatewayId": "shared-a",
     "provisioningStatus": "complete",
-    "driftState": "healthy"
+    "driftState": "healthy",
+    "latestOperation": { "id": "op-1", "kind": "migrate", "status": "completed" }
   }]
 }
 ```
 
-`driftState` is `healthy`, `in-flight`, `assigned-not-mounted`, `mounted-orphan`, `pointer-drift` or `missing-gateway`.
+`driftState` is `healthy`, `in-flight`, `assigned-not-mounted`, `mounted-orphan`, `pointer-drift` or `missing-gateway`. `pointer-drift` means the user is placed on a gateway other than `policyTargetGatewayId`, which `octogee-fleet` calls the placement target. `missing-gateway` means the gateway the user is placed on, or the placement target, is retired or unknown.
 
 ## `GET /gateways/<gateway>/releases`
 
@@ -111,12 +127,33 @@ A shared gateway added this way belongs to the operator: no automation replaces,
 ## `GET /operations`
 
 ```json
-{ "operations": [{ "id": "op-1", "kind": "deploy", "status": "running", "createdBy": "operator" }] }
+{
+  "operations": [
+    { "id": "op-1", "kind": "deploy", "status": "running", "createdBy": "operator", "createdAt": 1794268800000 },
+    { "id": "audit-1", "recordType": "audit", "what": "update gateway desired configuration", "status": "completed", "createdBy": "operator", "createdAt": 1794268800000 }
+  ]
+}
+```
+
+An audit records an operator change. Its `kind` is the mutation's kind and may be missing; `what` always says what it did.
+
+## `GET /operations/<operation>`
+
+```json
+{
+  "operation": {
+    "id": "op-1", "kind": "migrate", "status": "failed", "createdBy": "operator", "createdAt": 1794268800000,
+    "error": "<message>",
+    "steps": [{ "name": "quiesce-source", "status": "failed", "error": "<message>" }]
+  }
+}
 ```
 
 ## `GET /builds`
 
-`octogee-fleet` prints the `builds` array as returned.
+```json
+{ "service": "gateway", "builds": [{ "tag": "<tag>", "pushedAt": "2026-11-10T00:00:00Z", "digest": "sha256:<hex>" }], "generatedAt": "2026-11-10T00:00:00Z" }
+```
 
 ## `GET /release-status`
 
@@ -134,6 +171,8 @@ A stream of newline-delimited JSON, open until the client disconnects unless `fo
 ```json
 { "timestamp": "2026-11-10T00:00:00Z", "severity": "WARNING", "service": "api", "message": "..." }
 ```
+
+With `follow=false`, the Admin API reads the window's history before it writes any of it. When it stops before the start of the window, its last entry carries `"details": {"truncated": true}`.
 
 ## `POST /users`
 
