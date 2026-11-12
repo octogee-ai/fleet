@@ -101,6 +101,15 @@ func (u ui) printJSON(value any) error {
 	return nil
 }
 
+// recordsOf lists the records as the Admin API sent them.
+func recordsOf[T any](items []T, record func(T) json.RawMessage) []json.RawMessage {
+	list := make([]json.RawMessage, len(items))
+	for index, item := range items {
+		list[index] = record(item)
+	}
+	return list
+}
+
 var ansiPattern = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 func visibleWidth(text string) int {

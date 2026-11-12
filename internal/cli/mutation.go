@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,30 +30,102 @@ func (i *invocation) command(arguments string) string {
 }
 
 func (i *invocation) apply(c change) error {
-	data, applied, err := i.send(c)
+	request, data, applied, err := i.send(c)
 	if err != nil || !applied {
 		return err
+	}
+	if i.json {
+		return i.printJSON(changeDocument{Request: describeRequest(request), Response: rawJSON(data)})
 	}
 	i.printResult(c, data)
 	return nil
 }
 
-// send prints the request, then dry-runs it or, with --apply, sends it.
-func (i *invocation) send(c change) ([]byte, bool, error) {
+// send prints the request, then dry-runs it or, with --apply, sends it. It
+// returns the request as sent.
+func (i *invocation) send(c change) (admin.Request, []byte, bool, error) {
 	request := c.request
 	request.IdempotencyKey = i.value("idempotency-key")
-	i.printRequest(request)
+	if !i.json {
+		i.printRequest(request)
+	}
 	for _, note := range c.notes {
-		i.warn(note)
+		i.caution(note)
 	}
 	if !i.has("apply") {
-		return nil, false, i.dryRun(request)
+		return request, nil, false, i.dryRun(request)
 	}
 	data, err := i.admin.Send(i.ctx, request)
 	if err != nil {
-		return nil, false, err
+		return request, nil, false, err
 	}
-	return data, true, nil
+	return request, data, true, nil
+}
+
+// caution is a warning a person must see; with --format=json it goes to stderr.
+func (i *invocation) caution(text string) {
+	if i.json {
+		i.notice(text)
+		return
+	}
+	i.warn(text)
+}
+
+// unchanged reports a change that is already in place.
+func (i *invocation) unchanged(reason string) error {
+	if i.json {
+		return i.printJSON(map[string]any{"unchanged": true, "reason": reason})
+	}
+	i.ok(reason + "; nothing to do")
+	return nil
+}
+
+// changeDocument is a mutation as --format=json prints it.
+type changeDocument struct {
+	DryRun   bool              `json:"dryRun"`
+	Checked  *bool             `json:"checked,omitempty"`
+	Request  requestDocument   `json:"request"`
+	Plans    []json.RawMessage `json:"plans,omitempty"`
+	Response json.RawMessage   `json:"response,omitempty"`
+}
+
+type requestDocument struct {
+	Method         string            `json:"method"`
+	Path           string            `json:"path"`
+	Query          map[string]string `json:"query,omitempty"`
+	Body           any               `json:"body,omitempty"`
+	IdempotencyKey string            `json:"idempotencyKey,omitempty"`
+}
+
+func describeRequest(request admin.Request) requestDocument {
+	document := requestDocument{Method: request.Method, Path: request.Path, IdempotencyKey: request.IdempotencyKey}
+	if len(request.Query) > 0 {
+		document.Query = map[string]string{}
+		for name := range request.Query {
+			document.Query[name] = request.Query.Get(name)
+		}
+	}
+	if request.Body != nil {
+		document.Body = request.Body
+	}
+	return document
+}
+
+func dryRunDocument(request admin.Request, checked bool, plans []json.RawMessage) changeDocument {
+	return changeDocument{DryRun: true, Checked: &checked, Request: describeRequest(request), Plans: plans}
+}
+
+// rawJSON is an Admin API response to embed in JSON output.
+func rawJSON(data []byte) json.RawMessage {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return nil
+	}
+	if !json.Valid(data) {
+		quoted, _ := json.Marshal(string(data))
+		return quoted
+	}
+	return data
 }
 
 func (i *invocation) printRequest(request admin.Request) {
@@ -82,27 +155,46 @@ func (i *invocation) banner(text string) {
 
 func (i *invocation) dryRun(request admin.Request) error {
 	if i.has("offline") {
-		i.banner("dry run, nothing sent; add --apply to do it")
-		return nil
+		return i.unchecked(request, "dry run, nothing sent; add --apply to do it")
 	}
 	if !i.admin.Supports(admin.DryRun) {
-		i.banner("dry run, nothing sent: this Admin API does not answer dry runs, so it has not checked this request; add --apply to do it")
-		return nil
+		return i.unchecked(request, "dry run, nothing sent: this Admin API does not answer dry runs, so it has not checked this request; add --apply to do it")
 	}
 	data, err := i.admin.Send(i.ctx, request.AsDryRun())
 	if err != nil {
 		return dryRunRefusal(err)
 	}
-	var answer dryRunAnswer
+	var answer struct {
+		DryRun bool              `json:"dryRun"`
+		Plans  []json.RawMessage `json:"plans"`
+	}
 	if err := json.Unmarshal(data, &answer); err != nil || !answer.DryRun {
 		return fmt.Errorf("the Admin API did not answer with a plan, so the change may have been applied; it returned: %s", strings.TrimSpace(string(data)))
 	}
 	if len(answer.Plans) == 0 {
 		return fmt.Errorf("the Admin API answered the dry run without saying what it would do; it returned: %s", strings.TrimSpace(string(data)))
 	}
-	i.printPlans(answer)
+	if i.json {
+		return i.printJSON(dryRunDocument(request, true, answer.Plans))
+	}
+	plans := make([]dryRunPlan, len(answer.Plans))
+	for index, raw := range answer.Plans {
+		if err := json.Unmarshal(raw, &plans[index]); err != nil {
+			return fmt.Errorf("decode the dry run's plan: %w", err)
+		}
+	}
+	i.printPlans(plans)
 	i.banner("dry run, nothing changed; add --apply to do it")
 	i.detail(i.style.dim("checks made while the change is applied are not predicted"))
+	return nil
+}
+
+// unchecked reports a dry run that the Admin API did not check.
+func (i *invocation) unchecked(request admin.Request, banner string) error {
+	if i.json {
+		return i.printJSON(dryRunDocument(request, false, nil))
+	}
+	i.banner(banner)
 	return nil
 }
 
@@ -114,18 +206,15 @@ func dryRunRefusal(err error) error {
 	return fmt.Errorf("dry run: the Admin API would refuse this request (%s): %s\nnothing was changed", refused.Label(), refused.Message)
 }
 
-type dryRunAnswer struct {
-	DryRun bool `json:"dryRun"`
-	Plans  []struct {
-		What         string         `json:"what"`
-		Target       map[string]any `json:"target"`
-		CurrentState map[string]any `json:"preActionStatus"`
-		Forced       bool           `json:"forced"`
-	} `json:"plans"`
+type dryRunPlan struct {
+	What         string         `json:"what"`
+	Target       map[string]any `json:"target"`
+	CurrentState map[string]any `json:"preActionStatus"`
+	Forced       bool           `json:"forced"`
 }
 
-func (i *invocation) printPlans(answer dryRunAnswer) {
-	for _, plan := range answer.Plans {
+func (i *invocation) printPlans(plans []dryRunPlan) {
+	for _, plan := range plans {
 		var forced string
 		if plan.Forced {
 			forced = i.style.red("yes")

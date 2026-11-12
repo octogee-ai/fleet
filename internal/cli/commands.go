@@ -22,7 +22,9 @@ type command struct {
 	examples []string
 	// standalone commands need no environment and call no Admin API.
 	standalone bool
-	run        func(*invocation) error
+	// messagesOnly commands say what happened and print no data, so they take no --format.
+	messagesOnly bool
+	run          func(*invocation) error
 }
 
 func (c *command) name() string { return strings.Join(c.path, " ") }

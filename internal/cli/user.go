@@ -89,12 +89,18 @@ func userList(i *invocation) error {
 	if err != nil {
 		return err
 	}
+	var listed []placedUser
+	for _, user := range directory.Users {
+		if filter == "" || user.AssignedGatewayID == filter || user.MountedGatewayID == filter {
+			listed = append(listed, user)
+		}
+	}
+	if i.json {
+		return i.printJSON(map[string]any{"users": recordsOf(listed, func(u placedUser) json.RawMessage { return u.record })})
+	}
 	var rows [][]string
 	var drift []string
-	for _, user := range directory.Users {
-		if filter != "" && user.AssignedGatewayID != filter && user.MountedGatewayID != filter {
-			continue
-		}
+	for _, user := range listed {
 		rows = append(rows, []string{i.style.bold(user.Name), i.style.dim(user.ID), dash(user.AssignedGatewayID), dash(user.MountedGatewayID), i.style.state(user.ProvisioningStatus)})
 		if line := user.drift(); line != "" {
 			drift = append(drift, line)
@@ -112,8 +118,11 @@ func userInspect(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	if err := i.printJSON(user); err != nil {
+	if err := i.printJSON(map[string]any{"user": user.record}); err != nil {
 		return err
+	}
+	if i.json {
+		return nil
 	}
 	if line := user.drift(); line != "" {
 		i.warn(line)
@@ -159,17 +168,23 @@ func userIssuePasswords(i *invocation) error {
 	if user.ProvisioningStatus != provisioningComplete {
 		return fmt.Errorf("%s has not finished provisioning (status %s)", user.Name, dash(user.ProvisioningStatus))
 	}
-	data, applied, err := i.send(change{request: post(admin.Path("users", user.ID, "one-time-passwords"), nil)})
+	request, data, applied, err := i.send(change{request: post(admin.Path("users", user.ID, "one-time-passwords"), nil)})
 	if err != nil || !applied {
 		return err
 	}
-	return i.printOneTimePasswords(data)
+	return i.printOneTimePasswords(request, data)
 }
 
-func (i *invocation) printOneTimePasswords(data []byte) error {
+const passwordsShownOnce = "these passwords are shown once and are not stored. Git asks for a new one at first sign-in; ask the user to change the chat password too."
+
+func (i *invocation) printOneTimePasswords(request admin.Request, data []byte) error {
 	var issued oneTimePasswords
 	if err := json.Unmarshal(data, &issued); err != nil || issued.Chat.Password == "" || issued.Git.Password == "" {
 		return errors.New("the server returned no passwords; run this command again to issue new ones")
+	}
+	if i.json {
+		i.notice(passwordsShownOnce)
+		return i.printJSON(changeDocument{Request: describeRequest(request), Response: rawJSON(data)})
 	}
 	if i.style.glyphs {
 		i.ok("new passwords issued")
@@ -181,7 +196,7 @@ func (i *invocation) printOneTimePasswords(data []byte) error {
 		{"chat", issued.Chat.Username, i.style.bold(issued.Chat.Password)},
 		{"git", issued.Git.Username, i.style.bold(issued.Git.Password)},
 	}, "")
-	i.warn("these passwords are shown once and are not stored. Git asks for a new one at first sign-in; ask the user to change the chat password too.")
+	i.warn(passwordsShownOnce)
 	return nil
 }
 
@@ -191,8 +206,7 @@ func userAssign(i *invocation) error {
 		return err
 	}
 	if user.AssignedGatewayID == target.GatewayID {
-		i.ok(fmt.Sprintf("%s is already on %s; nothing to do", user.Name, target.GatewayID))
-		return nil
+		return i.unchanged(fmt.Sprintf("%s is already on %s", user.Name, target.GatewayID))
 	}
 	if user.AssignedGatewayID != "" {
 		return fmt.Errorf("%s is already on %s; use `octogee-fleet user migrate` to move them", user.Name, user.AssignedGatewayID)
@@ -225,8 +239,7 @@ func userMigrate(i *invocation) error {
 		return fmt.Errorf("%s has no gateway to move from; use `octogee-fleet user assign` to place them", user.Name)
 	}
 	if user.AssignedGatewayID == target.GatewayID {
-		i.ok(fmt.Sprintf("%s is already on %s; nothing to do", user.Name, target.GatewayID))
-		return nil
+		return i.unchanged(fmt.Sprintf("%s is already on %s", user.Name, target.GatewayID))
 	}
 	body := map[string]any{"to": target.GatewayID}
 	if transfer != "" {
@@ -308,8 +321,8 @@ func userBroker(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	var diagnostics map[string]any
-	if err := i.admin.Get(i.ctx, admin.Path("users", user.ID, "broker-diagnostics"), nil, &diagnostics); err != nil {
+	diagnostics, err := i.read(admin.Path("users", user.ID, "broker-diagnostics"), nil, nil)
+	if err != nil {
 		return err
 	}
 	return i.printJSON(diagnostics)

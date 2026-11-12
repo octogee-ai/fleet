@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -48,6 +49,7 @@ var (
 		bare("offline", "Print the request without asking the Admin API to check it."),
 		valued("idempotency-key", "<key>", "Send this Idempotency-Key, so a retry changes nothing twice."),
 	}
+	formatFlag = valued("format", "text|json", "Print text for people, or JSON for scripts.")
 )
 
 type parsedFlag struct {
@@ -87,14 +89,20 @@ func parseArgs(argv []string) (parsedArgs, error) {
 	return parsed, nil
 }
 
-// flagSpecs are the command's own flags, then the flags every mutation takes.
+// flagSpecs are the command's own flags, then the flags every mutation takes,
+// then --format for every command that prints data.
 func (c *command) flagSpecs() []flagSpec {
 	specs := append([]flagSpec{}, c.flags...)
 	if c.mutating {
 		specs = append(specs, mutatingFlagSpecs...)
 	}
+	if c.printsData() && !slices.ContainsFunc(specs, func(f flagSpec) bool { return f.name == formatFlag.name }) {
+		specs = append(specs, formatFlag)
+	}
 	return specs
 }
+
+func (c *command) printsData() bool { return !c.standalone && !c.messagesOnly }
 
 func (c *command) acceptedFlags() flagSet {
 	accepted := flagSet{}
@@ -119,6 +127,9 @@ func (c *command) validate(parsed parsedArgs, args []string) error {
 		if err := checkFlag(c, name, parsed.flags[name], accepted); err != nil {
 			return err
 		}
+	}
+	if format := parsed.flags["format"].value; parsed.has("format") && format != formatText && format != formatJSON {
+		return fmt.Errorf("--format must be text or json, got %q", format)
 	}
 	if parsed.has("apply") && parsed.has("offline") {
 		return errors.New("--offline prints a request without sending it, so it cannot be combined with --apply")

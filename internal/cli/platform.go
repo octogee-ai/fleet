@@ -84,8 +84,12 @@ func opsList(i *invocation) error {
 			CreatedBy string `json:"createdBy"`
 		} `json:"operations"`
 	}
-	if err := i.admin.Get(i.ctx, admin.Path("operations"), query, &response); err != nil {
+	raw, err := i.read(admin.Path("operations"), query, &response)
+	if err != nil {
 		return err
+	}
+	if i.json {
+		return i.printJSON(raw)
 	}
 	rows := make([][]string, 0, len(response.Operations))
 	for _, operation := range response.Operations {
@@ -101,8 +105,12 @@ func buildsList(i *invocation) error {
 		return err
 	}
 	var response map[string]any
-	if err := i.admin.Get(i.ctx, admin.Path("builds"), query, &response); err != nil {
+	raw, err := i.read(admin.Path("builds"), query, &response)
+	if err != nil {
 		return err
+	}
+	if i.json {
+		return i.printJSON(raw)
 	}
 	return i.printJSON(response["builds"])
 }
@@ -111,8 +119,12 @@ func opsInspect(i *invocation) error {
 	var response struct {
 		Operation map[string]any `json:"operation"`
 	}
-	if err := i.admin.Get(i.ctx, admin.Path("operations", i.args[0]), nil, &response); err != nil {
+	raw, err := i.read(admin.Path("operations", i.args[0]), nil, &response)
+	if err != nil {
 		return err
+	}
+	if i.json {
+		return i.printJSON(raw)
 	}
 	return i.printJSON(response.Operation)
 }
@@ -133,8 +145,12 @@ func releaseStatus(i *invocation) error {
 			Status    string `json:"observation"`
 		} `json:"gateways"`
 	}
-	if err := i.admin.Get(i.ctx, admin.Path("release-status"), nil, &response); err != nil {
+	raw, err := i.read(admin.Path("release-status"), nil, &response)
+	if err != nil {
 		return err
+	}
+	if i.json {
+		return i.printJSON(raw)
 	}
 	i.line(fmt.Sprintf("%s: %d of %d serving gateways converged", i.style.dot(response.Summary.Status), response.Summary.Converged, response.Summary.Serving))
 	for _, blocker := range response.Summary.Blockers {
@@ -157,9 +173,6 @@ func release(value *int) string {
 
 func logs(i *invocation) error {
 	format := i.value("format")
-	if i.has("format") && format != "text" && format != "json" {
-		return fmt.Errorf("--format must be text or json, got %q", format)
-	}
 	query := url.Values{}
 	for _, name := range []string{"level", "service", "user", "migration", "gateway", "since"} {
 		if i.has(name) {

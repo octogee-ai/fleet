@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -26,6 +28,8 @@ type gatewaySummary struct {
 	MountedUsers    []string `json:"mountedUsers"`
 	LastHeartbeatAt instant  `json:"lastHeartbeatAt"`
 	OwnerID         string   `json:"ownerId"`
+
+	record json.RawMessage
 }
 
 type placedUser struct {
@@ -35,24 +39,58 @@ type placedUser struct {
 	MountedGatewayID   string `json:"mountedGatewayId"`
 	ProvisioningStatus string `json:"provisioningStatus"`
 	DriftState         string `json:"driftState"`
+
+	record json.RawMessage
 }
 
 type placement struct {
-	Users []placedUser `json:"users"`
+	Users []placedUser
+}
+
+// read gets an Admin API resource and decodes it into view, if one is given.
+// It returns the response as sent, for --format=json.
+func (i *invocation) read(path string, query url.Values, view any) (json.RawMessage, error) {
+	var response json.RawMessage
+	if err := i.admin.Get(i.ctx, path, query, &response); err != nil {
+		return nil, err
+	}
+	if view == nil {
+		return response, nil
+	}
+	if err := json.Unmarshal(response, view); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	return response, nil
+}
+
+// records decodes each record and keeps it as the Admin API sent it.
+func records[T any](raw []json.RawMessage, keep func(*T, json.RawMessage)) ([]T, error) {
+	decoded := make([]T, len(raw))
+	for index, record := range raw {
+		if err := json.Unmarshal(record, &decoded[index]); err != nil {
+			return nil, err
+		}
+		keep(&decoded[index], record)
+	}
+	return decoded, nil
 }
 
 func (i *invocation) gateways(all bool) ([]gatewaySummary, error) {
 	var response struct {
-		Gateways []gatewaySummary `json:"gateways"`
+		Gateways []json.RawMessage `json:"gateways"`
 	}
-	query := map[string][]string{}
+	var query url.Values
 	if all {
-		query["all"] = []string{"true"}
+		query = url.Values{"all": {"true"}}
 	}
-	if err := i.admin.Get(i.ctx, admin.Path("gateways"), query, &response); err != nil {
+	if _, err := i.read(admin.Path("gateways"), query, &response); err != nil {
 		return nil, err
 	}
-	return response.Gateways, nil
+	gateways, err := records(response.Gateways, func(g *gatewaySummary, raw json.RawMessage) { g.record = raw })
+	if err != nil {
+		return nil, fmt.Errorf("decode gateways: %w", err)
+	}
+	return gateways, nil
 }
 
 func findGateway(gateways []gatewaySummary, id string) (gatewaySummary, error) {
@@ -72,25 +110,18 @@ func (i *invocation) gateway(id string) (gatewaySummary, error) {
 	return findGateway(gateways, id)
 }
 
-func (i *invocation) gatewayRecord(id string) (map[string]any, error) {
-	var response struct {
-		Gateways []map[string]any `json:"gateways"`
-	}
-	if err := i.admin.Get(i.ctx, admin.Path("gateways"), nil, &response); err != nil {
-		return nil, err
-	}
-	for _, gateway := range response.Gateways {
-		if gateway["gatewayId"] == id {
-			return gateway, nil
-		}
-	}
-	return nil, fmt.Errorf("unknown gateway %q", id)
-}
-
 func (i *invocation) placement() (placement, error) {
-	var response placement
-	err := i.admin.Get(i.ctx, admin.Path("placement"), nil, &response)
-	return response, err
+	var response struct {
+		Users []json.RawMessage `json:"users"`
+	}
+	if _, err := i.read(admin.Path("placement"), nil, &response); err != nil {
+		return placement{}, err
+	}
+	users, err := records(response.Users, func(u *placedUser, raw json.RawMessage) { u.record = raw })
+	if err != nil {
+		return placement{}, fmt.Errorf("decode users: %w", err)
+	}
+	return placement{Users: users}, nil
 }
 
 func (p placement) user(reference string) (placedUser, error) {

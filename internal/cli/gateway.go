@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -94,6 +95,9 @@ func gatewayList(i *invocation) error {
 	if err != nil {
 		return err
 	}
+	if i.json {
+		return i.printJSON(map[string]any{"gateways": recordsOf(gateways, func(g gatewaySummary) json.RawMessage { return g.record })})
+	}
 	rows := make([][]string, 0, len(gateways))
 	for _, gateway := range gateways {
 		rows = append(rows, []string{
@@ -106,16 +110,19 @@ func gatewayList(i *invocation) error {
 }
 
 func gatewayInspect(i *invocation) error {
-	id := i.args[0]
-	gateway, err := i.gatewayRecord(id)
+	gateways, err := i.gateways(true)
 	if err != nil {
 		return err
 	}
-	var details map[string]any
-	if err := i.admin.Get(i.ctx, admin.Path("gateways", id, "details"), nil, &details); err != nil {
+	gateway, err := findGateway(gateways, i.args[0])
+	if err != nil {
 		return err
 	}
-	return i.printJSON(map[string]any{"gateway": gateway, "details": details})
+	details, err := i.read(admin.Path("gateways", gateway.GatewayID, "details"), nil, nil)
+	if err != nil {
+		return err
+	}
+	return i.printJSON(map[string]any{"gateway": gateway.record, "details": details})
 }
 
 func gatewayAdd(i *invocation) error {
@@ -211,8 +218,12 @@ func gatewayReleases(i *invocation) error {
 			Desired   bool    `json:"desired"`
 		} `json:"releases"`
 	}
-	if err := i.admin.Get(i.ctx, admin.Path("gateways", i.args[0], "releases"), nil, &response); err != nil {
+	raw, err := i.read(admin.Path("gateways", i.args[0], "releases"), nil, &response)
+	if err != nil {
 		return err
+	}
+	if i.json {
+		return i.printJSON(raw)
 	}
 	rows := make([][]string, 0, len(response.Releases))
 	for _, release := range response.Releases {
