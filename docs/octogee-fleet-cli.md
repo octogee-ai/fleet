@@ -3,7 +3,7 @@
 The platform runs OpenClaw gateways for its users:
 
 - A **shared gateway** hosts many users.
-- An **isolated gateway** hosts one user, on its own VM. It comes from that user's activation lease, not from `gateway add`.
+- An **isolated gateway** hosts one user, on its own VM. It is created for that user, by `user migrate --to-isolated` or by the user's activation lease, not by `gateway add`.
 
 ## Terms
 
@@ -73,6 +73,7 @@ These talk to the environment's OIDC issuer, not the Admin API.
 | `user issue-passwords <user>` | Sets new random chat and git passwords and prints them once. Run it after `user inspect` shows provisioning `complete`, and again if a password is lost. Refuses a user who has not finished provisioning. | `POST /users/<id>/one-time-passwords` |
 | `user assign <user> --to=<gateway>` | Places a user who has no gateway. Refuses a parked gateway and another user's isolated gateway. | `POST /users/<id>/assign` |
 | `user migrate <user> --to=<gateway> [--source-transfer=retained-pod]` | Moves a placed user to another gateway as a journaled migration | `POST /users/<id>/migrate` |
+| `user migrate <user> --to-isolated=<sizing profile>` | Moves a placed user to an isolated gateway that does not exist yet. The Admin API creates it for the user at the sizing profile and queues the migration. Takes exactly one of `--to` and `--to-isolated`. Once the user has an isolated gateway, move them back to it with `--to=<gateway>`. | `POST /users/<id>/isolated-gateway` |
 | `user unassign <user>` | Removes a user's placement | `POST /users/<id>/unassign` |
 | `user replace-vm <user> [--force --accept-boot-data-loss]` | Replaces the VM of the user's isolated gateway | `POST /users/<id>/vm/replace` |
 | `user lease request\|cancel\|terminate\|return <user> [--lease=<id> --generation=<n>]` | Manages the user's activation lease | `POST /users/<id>/activation-lease[/cancel\|/terminate\|/return]` |

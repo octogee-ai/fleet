@@ -17,7 +17,7 @@ var userCommands = []*command{
 	{path: words("user add"), usage: "<name> --email=<address>", argc: 1, summary: "Create and admit a user.", flags: flagSet{"email": valueFlag}, required: []string{"email"}, mutating: true, run: userAdd},
 	{path: words("user issue-passwords"), usage: "<user>", argc: 1, summary: "Set new chat and git passwords and print them once.", mutating: true, run: userIssuePasswords},
 	{path: words("user assign"), usage: "<user> --to=<gateway>", argc: 1, summary: "Place a user who has no gateway.", flags: flagSet{"to": valueFlag}, required: []string{"to"}, mutating: true, run: userAssign},
-	{path: words("user migrate"), usage: "<user> --to=<gateway> [--source-transfer=retained-pod]", argc: 1, summary: "Move a placed user to another gateway.", flags: flagSet{"to": valueFlag, "source-transfer": valueFlag}, required: []string{"to"}, mutating: true, run: userMigrate},
+	{path: words("user migrate"), usage: "<user> (--to=<gateway> [--source-transfer=retained-pod] | --to-isolated=<sizing profile>)", argc: 1, summary: "Move a placed user to another gateway, or to a new isolated gateway of a sizing profile.", flags: flagSet{"to": valueFlag, "source-transfer": valueFlag, "to-isolated": valueFlag}, mutating: true, run: userMigrate},
 	{path: words("user unassign"), usage: "<user>", argc: 1, summary: "Remove a user's placement.", mutating: true, run: userAction("unassign", nil)},
 	{path: words("user replace-vm"), usage: "<user> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace the VM of the user's isolated gateway.", flags: flagSet{"force": bareFlag, "accept-boot-data-loss": bareFlag}, mutating: true, run: userReplaceVM},
 	{path: words("user delete"), usage: "<user> [--erase-now]", argc: 1, summary: "Schedule a user's deletion; --erase-now erases at once.", flags: flagSet{"erase-now": bareFlag}, mutating: true, run: userDelete},
@@ -149,6 +149,12 @@ func userAssign(i *invocation) error {
 }
 
 func userMigrate(i *invocation) error {
+	if i.has("to") == i.has("to-isolated") {
+		return errors.New("user migrate takes exactly one of --to=<gateway> and --to-isolated=<sizing profile>")
+	}
+	if i.has("to-isolated") {
+		return userMigrateToIsolated(i)
+	}
 	transfer := i.value("source-transfer")
 	if i.has("source-transfer") && transfer != "retained-pod" {
 		return fmt.Errorf("--source-transfer must be retained-pod, got %q", transfer)
@@ -169,6 +175,20 @@ func userMigrate(i *invocation) error {
 		body["sourceTransfer"] = transfer
 	}
 	return i.post(admin.Path("users", user.ID, "migrate"), body)
+}
+
+func userMigrateToIsolated(i *invocation) error {
+	if i.has("source-transfer") {
+		return errors.New("--source-transfer applies only to a move with --to=<gateway>")
+	}
+	user, err := i.namedUser()
+	if err != nil {
+		return err
+	}
+	if user.AssignedGatewayID == "" {
+		return fmt.Errorf("%s has no gateway to move from; use `octogee-fleet user assign` to place them", user.Name)
+	}
+	return i.post(admin.Path("users", user.ID, "isolated-gateway"), map[string]any{"sizingProfile": i.value("to-isolated")})
 }
 
 func (i *invocation) userAndTarget() (placedUser, gatewaySummary, error) {

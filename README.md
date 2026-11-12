@@ -90,6 +90,10 @@ octogee-fleet --env=staging user migrate ada --to=shared-b
 octogee-fleet --env=staging user migrate ada --to=shared-b --apply
 ```
 
+```bash
+octogee-fleet --env=staging user migrate ada --to-isolated=standard
+```
+
 Mutating commands are a dry run until you pass `--apply`: they print the request and the Admin API checks it without changing anything. Run `octogee-fleet help` for the command list.
 
 ## Documentation
