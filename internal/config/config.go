@@ -27,11 +27,10 @@ var environmentName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // Environment is one named deployment of the platform. An operator signs in
 // through OIDC; automation names a command that prints an OIDC ID token.
 type Environment struct {
-	AdminAPIOrigin  string         `json:"adminApiOrigin"`
-	ImageRepository string         `json:"imageRepository"`
-	OIDC            *oidc.Settings `json:"oidc,omitempty"`
-	TokenCommand    []string       `json:"tokenCommand,omitempty"`
-	dir             string
+	AdminAPIOrigin string         `json:"adminApiOrigin"`
+	OIDC           *oidc.Settings `json:"oidc,omitempty"`
+	TokenCommand   []string       `json:"tokenCommand,omitempty"`
+	dir            string
 }
 
 // File is a parsed operator configuration.
@@ -100,9 +99,6 @@ func (f *File) Environment(name string) (Environment, error) {
 func (e Environment) validate() error {
 	if err := validateOrigin(e.AdminAPIOrigin); err != nil {
 		return err
-	}
-	if e.ImageRepository == "" {
-		return errors.New("imageRepository is required")
 	}
 	if (e.OIDC == nil) == (len(e.TokenCommand) == 0) {
 		return errors.New("name exactly one of oidc or tokenCommand")

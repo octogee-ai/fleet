@@ -30,19 +30,47 @@ func TestGatewayMutations(t *testing.T) {
 	}
 }
 
-func TestGatewayAddTakesTheImageRepositoryFromTheEnvironment(t *testing.T) {
-	expectApplied(t, fleet(t, "gateway", "add", "--id=shared-c", "--image-tag=v42", "--apply"), adminRequest{
+func TestGatewayAddNamesTheBuildBySha(t *testing.T) {
+	expectApplied(t, fleet(t, "gateway", "add", "--id=shared-c", "--sha="+sha, "--apply"), adminRequest{
 		Method: http.MethodPost, Path: "/api/admin/gateways",
-		Body: map[string]any{"gatewayId": "shared-c", "imageTag": "v42", "gatewayClass": "shared", "imageRepository": "registry.example/gateway"},
+		Body: map[string]any{"gatewayId": "shared-c", "sourceSha": sha},
 	})
+}
+
+func TestGatewayAddWithoutAShaLeavesTheBuildToThePlatform(t *testing.T) {
+	expectApplied(t, fleet(t, "gateway", "add", "--id=shared-c", "--apply"), adminRequest{
+		Method: http.MethodPost, Path: "/api/admin/gateways",
+		Body: map[string]any{"gatewayId": "shared-c"},
+	})
+}
+
+func TestGatewayAddSendsNoImageFields(t *testing.T) {
+	for _, argv := range [][]string{
+		{"gateway", "add", "--id=shared-c"},
+		{"gateway", "add", "--id=shared-c", "--sha=" + sha},
+	} {
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			for name := range fleet(t, append(argv, "--apply")...).onlyMutation(t).Body {
+				if strings.Contains(strings.ToLower(name), "image") {
+					t.Fatalf("sent %q", name)
+				}
+			}
+		})
+	}
+}
+
+func TestGatewayAddNoLongerTakesAnImageTag(t *testing.T) {
+	run := fleet(t, "gateway", "add", "--id=shared-c", "--image-tag=v42", "--apply")
+	expectNothingSent(t, run)
+	expectContains(t, run.stderr, "does not accept --image-tag")
 }
 
 func TestGatewayAddRefusals(t *testing.T) {
 	cases := map[string][]string{
-		"an id that already exists":  {"gateway", "add", "--id=shared-a", "--image-tag=v42", "--apply"},
-		"an id that is not DNS safe": {"gateway", "add", "--id=Not_Safe", "--image-tag=v42", "--apply"},
-		"an isolated gateway":        {"gateway", "add", "--id=c", "--image-tag=v42", "--class=isolated", "--apply"},
-		"an owner":                   {"gateway", "add", "--id=c", "--image-tag=v42", "--owner=alan", "--apply"},
+		"an id that already exists":  {"gateway", "add", "--id=shared-a", "--apply"},
+		"an id that is not DNS safe": {"gateway", "add", "--id=Not_Safe", "--apply"},
+		"an isolated gateway":        {"gateway", "add", "--id=c", "--class=isolated", "--apply"},
+		"an owner":                   {"gateway", "add", "--id=c", "--owner=alan", "--apply"},
 	}
 	for name, argv := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -56,6 +84,9 @@ func TestGatewayRefusesAnythingButAFullLowercaseSha(t *testing.T) {
 		{"gateway", "deploy", "shared-a", "--sha=main"},
 		{"gateway", "deploy", "shared-a", "--sha=" + strings.ToUpper(sha)},
 		{"gateway", "deploy", "shared-a", "--sha=" + sha[:12]},
+		{"gateway", "add", "--id=shared-c", "--sha=main"},
+		{"gateway", "add", "--id=shared-c", "--sha=" + strings.ToUpper(sha)},
+		{"gateway", "add", "--id=shared-c", "--sha=" + sha[:12]},
 	} {
 		t.Run(strings.Join(argv, " "), func(t *testing.T) {
 			expectRefused(t, fleet(t, append(argv, "--apply")...))

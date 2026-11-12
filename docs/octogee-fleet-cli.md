@@ -53,7 +53,7 @@ These talk to the environment's OIDC issuer, not the Admin API.
 | --- | --- | --- |
 | `gateway ls [--all]` | Lists gateways with status, version, mounted users and last heartbeat. `--all` includes retired gateways. | `GET /gateways` |
 | `gateway inspect <gateway>` | Full diagnostic for one gateway | `GET /gateways`, `GET /gateways/<gateway>/details` |
-| `gateway add --id= --image-tag=` | Registers a shared gateway. The image repository comes from the environment. | `POST /gateways` |
+| `gateway add --id=<id> [--sha=<full-sha>]` | Adds a shared gateway on an existing immutable build, or on the build the platform is running when `--sha` is omitted. The operator owns it: no automation replaces, drains or retires it. | `POST /gateways` |
 | `gateway deploy <gateway> --sha=<full-sha>` | Deploys an existing immutable build to one gateway | `POST /gateways/<gateway>/deploy` |
 | `gateway restart <gateway>` | Restarts the gateway | `POST /gateways/<gateway>/restart` |
 | `gateway park <gateway>` | Pauses the gateway | `PATCH /gateways/<gateway>` `{desiredStatus: "paused"}` |
@@ -62,6 +62,8 @@ These talk to the environment's OIDC issuer, not the Admin API.
 | `gateway releases <gateway>` | Lists the gateway's releases | `GET /gateways/<gateway>/releases` |
 | `gateway rollback <gateway> --release=<n>` | Rolls the gateway back to release `n` | `POST /gateways/<gateway>/releases/<n>/rollback` |
 | `gateway replace-vm <gateway> [--force --accept-boot-data-loss]` | Replaces an isolated gateway's VM from the current image, keeping the verified home disk | `POST /gateways/<gateway>/vm/replace` |
+
+A shared gateway stays on the build it was added on, and the Admin API refuses `gateway deploy` and `gateway rollback` on it. To move a shared gateway to a new build, add a shared gateway on that build with `gateway add --sha=`, move each user to it with `user migrate`, then retire the old gateway with `gateway retire`.
 
 ## User commands
 

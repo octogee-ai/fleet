@@ -29,7 +29,6 @@ go build -o octogee-fleet .
   "environments": {
     "staging": {
       "adminApiOrigin": "https://admin.staging.example.com",
-      "imageRepository": "registry.example.com/fleet/gateway",
       "oidc": {
         "issuer": "https://accounts.google.com",
         "clientId": "your-client-id.apps.googleusercontent.com",

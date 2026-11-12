@@ -12,7 +12,7 @@ import (
 var gatewayCommands = []*command{
 	{path: words("gateway ls"), usage: "[--all]", summary: "List gateways with status, version, mounted users and last heartbeat.", flags: flagSet{"all": bareFlag}, run: gatewayList},
 	{path: words("gateway inspect"), usage: "<gateway>", argc: 1, summary: "Show the full diagnostic for one gateway.", run: gatewayInspect},
-	{path: words("gateway add"), usage: "--id=<id> --image-tag=<tag>", summary: "Register a shared gateway.", flags: flagSet{"id": valueFlag, "image-tag": valueFlag}, required: []string{"id", "image-tag"}, mutating: true, run: gatewayAdd},
+	{path: words("gateway add"), usage: "--id=<id> [--sha=<full-sha>]", summary: "Add a shared gateway on an existing immutable build, or on the platform's running build.", flags: flagSet{"id": valueFlag, "sha": valueFlag}, required: []string{"id"}, mutating: true, run: gatewayAdd},
 	{path: words("gateway deploy"), usage: "<gateway> --sha=<full-sha>", argc: 1, summary: "Deploy an existing immutable build to one gateway.", flags: flagSet{"sha": valueFlag}, required: []string{"sha"}, mutating: true, run: gatewayDeploy},
 	{path: words("gateway restart"), usage: "<gateway>", argc: 1, summary: "Restart a gateway.", mutating: true, run: gatewayRestart},
 	{path: words("gateway park"), usage: "<gateway>", argc: 1, summary: "Pause a gateway.", mutating: true, run: gatewayDesiredStatus(statusPaused)},
@@ -57,6 +57,14 @@ func gatewayAdd(i *invocation) error {
 	if !gatewayIDPattern.MatchString(id) {
 		return fmt.Errorf("--id must be a lowercase DNS-safe id of 1 to 32 characters, got %q", id)
 	}
+	body := map[string]any{"gatewayId": id}
+	if i.has("sha") {
+		sha, err := fullSHA(i.value("sha"))
+		if err != nil {
+			return err
+		}
+		body["sourceSha"] = sha
+	}
 	gateways, err := i.gateways(true)
 	if err != nil {
 		return err
@@ -64,12 +72,7 @@ func gatewayAdd(i *invocation) error {
 	if _, err := findGateway(gateways, id); err == nil {
 		return fmt.Errorf("gateway %q already exists", id)
 	}
-	return i.post(admin.Path("gateways"), map[string]any{
-		"gatewayId":       id,
-		"imageTag":        i.value("image-tag"),
-		"gatewayClass":    "shared",
-		"imageRepository": i.environment.ImageRepository,
-	})
+	return i.post(admin.Path("gateways"), body)
 }
 
 func gatewayDeploy(i *invocation) error {

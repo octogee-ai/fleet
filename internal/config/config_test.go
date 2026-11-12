@@ -21,7 +21,7 @@ func writeConfig(t *testing.T, content string) string {
 const oidcSignIn = `"oidc":{"issuer":"https://issuer.example","clientId":"fleet-cli"}`
 
 func environmentConfig(origin, signIn string) string {
-	return `{"environments":{"test":{"adminApiOrigin":"` + origin + `","imageRepository":"registry.example/gateway",` + signIn + `}}}`
+	return `{"environments":{"test":{"adminApiOrigin":"` + origin + `",` + signIn + `}}}`
 }
 
 func TestLoadRefusesInvalidConfiguration(t *testing.T) {
@@ -29,15 +29,14 @@ func TestLoadRefusesInvalidConfiguration(t *testing.T) {
 		"plain http to a remote host":     environmentConfig("http://admin.example", oidcSignIn),
 		"an origin with a path":           environmentConfig("https://admin.example/api", oidcSignIn),
 		"another scheme":                  environmentConfig("ftp://admin.example", oidcSignIn),
-		"no way to sign in":               `{"environments":{"test":{"adminApiOrigin":"https://a.example","imageRepository":"r"}}}`,
+		"no way to sign in":               `{"environments":{"test":{"adminApiOrigin":"https://a.example"}}}`,
 		"two ways to sign in":             environmentConfig("https://admin.example", oidcSignIn+`,"tokenCommand":["printer"]`),
 		"a plain http remote issuer":      environmentConfig("https://admin.example", `"oidc":{"issuer":"http://issuer.example","clientId":"c"}`),
 		"an issuer without a client id":   environmentConfig("https://admin.example", `"oidc":{"issuer":"https://issuer.example"}`),
 		"a static operator token":         environmentConfig("https://admin.example", `"operatorToken":{"env":"T"}`),
 		"an unknown field":                environmentConfig("https://admin.example", oidcSignIn+`,"extra":1`),
 		"no environments":                 `{"environments":{}}`,
-		"no image repository":             `{"environments":{"test":{"adminApiOrigin":"https://a.example",` + oidcSignIn + `}}}`,
-		"an environment name with a path": `{"environments":{"../test":{"adminApiOrigin":"https://a.example","imageRepository":"r",` + oidcSignIn + `}}}`,
+		"an environment name with a path": `{"environments":{"../test":{"adminApiOrigin":"https://a.example",` + oidcSignIn + `}}}`,
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
