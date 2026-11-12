@@ -294,25 +294,10 @@ func fullSHA(value string) (string, error) {
 	return value, nil
 }
 
-func opaqueID(flag, value string) (string, error) {
-	if strings.Contains(value, "/") {
-		return "", fmt.Errorf("--%s must be an id, got %q", flag, value)
-	}
-	return value, nil
-}
-
 func positiveInt(flag, value string) (int, error) {
 	number, err := strconv.Atoi(value)
 	if err != nil || number <= 0 {
 		return 0, fmt.Errorf("--%s must be a positive integer, got %q", flag, value)
-	}
-	return number, nil
-}
-
-func wholeInt(flag, value string) (int, error) {
-	number, err := strconv.Atoi(value)
-	if err != nil || number < 0 {
-		return 0, fmt.Errorf("--%s must be a whole number, got %q", flag, value)
 	}
 	return number, nil
 }

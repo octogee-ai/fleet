@@ -3,7 +3,7 @@
 The platform runs OpenClaw gateways for its users:
 
 - A **shared gateway** hosts many users.
-- An **isolated gateway** hosts one user, on its own VM. It is created for that user, by `user migrate --to-isolated` or by the user's activation lease, not by `gateway add`.
+- An **isolated gateway** hosts one user, on its own VM. It is created for that user by `user migrate --to-isolated`, not by `gateway add`.
 
 ## Terms
 
@@ -16,7 +16,6 @@ The platform runs OpenClaw gateways for its users:
 | Placement | Which gateway a user is assigned to. A gateway reports the users it has actually mounted; a mismatch between the two is drift. |
 | Migration | A journaled move of a user from one gateway to another, carrying their channels, repositories and agent. |
 | Operation | One entry in the operations journal. Every applied fleet mutation writes one. |
-| Activation lease | A user's claim to start their isolated gateway's VM. It can be requested, cancelled, terminated or returned. |
 | Release | A numbered, immutable deployment of a build to one gateway. A gateway can roll back to an earlier release. |
 
 ## How every command behaves
@@ -25,9 +24,9 @@ The platform runs OpenClaw gateways for its users:
 - **The Admin API is the only boundary.** `octogee-fleet` needs no database, cluster or cloud credentials, and starts no process except an environment's `tokenCommand`.
 - **Identity is OpenID Connect.** Every request carries the ID token from the operator's sign-in, or the one an environment's `tokenCommand` prints. `octogee-fleet` renews an expired session and never mints or verifies tokens; the Admin API verifies each one.
 - **Reads come first, then at most one mutating request, or one dry run of it.** A token the Admin API rejects stops the command before any mutation.
-- **Mechanism, not policy.** Users move one at a time with `user migrate`. `octogee-fleet` does not decide when to add or retire shared gateways or when to rebalance users, and it has no commands for automated or advanced recovery of a gateway stuck mid-move; those belong to whatever you run on top of the platform.
+- **Mechanism, not policy.** Users move one at a time with `user migrate`. `octogee-fleet` does not decide when to add or retire shared gateways, when to rebalance users, or when to wake or idle an isolated gateway, and it has no commands for automated or advanced recovery of a gateway stuck mid-move; those belong to whatever you run on top of the platform.
 - **Dry run by default.** Without `--apply`, a mutating command prints the request it would send, then sends it to the Admin API marked `dryRun=true`. The Admin API runs the checks it makes before admitting the change and answers with what it would do, or with the refusal `--apply` would get. Nothing is changed, and a refusal exits non-zero. A bare `--apply` sends the request for real.
-- **A dry run is not a guarantee.** It does not predict checks the Admin API makes while it applies a change, such as a lease's id and generation, capacity, or a conflicting change that lands first. It does not predict failures later in the operation either. `user lease cancel`, `user lease return`, `user unassign` and the `replace-vm` commands are checked only for a well-formed request.
+- **A dry run is not a guarantee.** It does not predict checks the Admin API makes while it applies a change, such as capacity or a conflicting change that lands first. It does not predict failures later in the operation either. `user unassign` and the `replace-vm` commands are checked only for a well-formed request.
 - **`--offline`** prints the request without sending a dry run. The command's reads still run. It cannot be combined with `--apply`.
 - **An Admin API that does not answer dry runs is never sent one.** Such a server would ignore the marker and apply the request, so `octogee-fleet` sends a dry run only after a read in the same command showed that the server supports it. Otherwise it prints the request and says that it was not checked.
 - **`--idempotency-key=<key>`** becomes the request's `Idempotency-Key` header. A retried command with the same key changes nothing twice.
@@ -78,8 +77,6 @@ A shared gateway stays on the build it was added on, and the Admin API refuses `
 | `user migrate <user> --to-isolated=<sizing profile>` | Moves a placed user to an isolated gateway that does not exist yet. The Admin API creates it for the user at the sizing profile and queues the migration. Takes exactly one of `--to` and `--to-isolated`. Once the user has an isolated gateway, move them back to it with `--to=<gateway>`. | `POST /users/<id>/isolated-gateway` |
 | `user unassign <user>` | Removes a user's placement | `POST /users/<id>/unassign` |
 | `user replace-vm <user> [--force --accept-boot-data-loss]` | Replaces the VM of the user's isolated gateway | `POST /users/<id>/vm/replace` |
-| `user lease request\|cancel\|terminate\|return <user> [--lease=<id> --generation=<n>]` | Manages the user's activation lease | `POST /users/<id>/activation-lease[/cancel\|/terminate\|/return]` |
-| `user lease retry-return <user> --operation=<id>` | Retries a failed lease return | `POST /users/<id>/activation-lease/return/retry` |
 | `user delete <user> [--erase-now]` | Schedules the user's deletion; `--erase-now` erases at once | `POST /users/<id>/delete` |
 | `user broker <user>` | Shows the user's model broker diagnostics | `GET /users/<id>/broker-diagnostics` |
 

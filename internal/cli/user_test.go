@@ -22,11 +22,6 @@ func TestUserMutations(t *testing.T) {
 		{[]string{"user", "replace-vm", "grace"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/vm/replace", Body: map[string]any{}}},
 		{[]string{"user", "delete", "alan"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-alan/delete", Body: map[string]any{"eraseNow": false}}},
 		{[]string{"user", "delete", "alan", "--erase-now"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-alan/delete", Body: map[string]any{"eraseNow": true}}},
-		{[]string{"user", "lease", "request", "grace"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease"}},
-		{[]string{"user", "lease", "cancel", "grace", "--lease=lease-1", "--generation=3"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease/cancel", Body: map[string]any{"leaseId": "lease-1", "generation": float64(3)}}},
-		{[]string{"user", "lease", "terminate", "grace", "--lease=lease-1", "--generation=3"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease/terminate", Body: map[string]any{"leaseId": "lease-1", "generation": float64(3)}}},
-		{[]string{"user", "lease", "return", "grace", "--lease=lease-1", "--generation=3"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease/return", Body: map[string]any{"leaseId": "lease-1", "generation": float64(3)}}},
-		{[]string{"user", "lease", "retry-return", "grace", "--operation=op-9"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/activation-lease/return/retry", Body: map[string]any{"operationId": "op-9"}}},
 	}
 	for _, testCase := range cases {
 		t.Run(strings.Join(testCase.argv, " "), func(t *testing.T) {
@@ -129,18 +124,6 @@ func TestUserReplaceVMRequiresBothBreakGlassFlags(t *testing.T) {
 	full := fleet(t, "user", "replace-vm", "grace", "--force", "--accept-boot-data-loss", "--apply")
 	if body := full.onlyMutation(t).Body; !reflect.DeepEqual(body, map[string]any{"force": true, "acceptBootDataLoss": true}) {
 		t.Fatalf("body %+v", body)
-	}
-}
-
-func TestUserLeaseRequiresALeaseIDAndAnIntegerGeneration(t *testing.T) {
-	for _, argv := range [][]string{
-		{"user", "lease", "cancel", "grace", "--generation=3"},
-		{"user", "lease", "terminate", "grace", "--lease=lease-1"},
-		{"user", "lease", "return", "grace", "--lease=lease-1", "--generation=three"},
-	} {
-		t.Run(strings.Join(argv, " "), func(t *testing.T) {
-			expectRefused(t, fleet(t, append(argv, "--apply")...))
-		})
 	}
 }
 
