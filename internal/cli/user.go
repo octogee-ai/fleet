@@ -222,7 +222,7 @@ func userIssuePasswords(i *invocation) error {
 	return i.printOneTimePasswords(request, data)
 }
 
-const passwordsShownOnce = "these passwords are shown once and are not stored. Git asks for a new one at first sign-in; ask the user to change the chat password too."
+const passwordsShownOnce = "These passwords are shown once and are not stored. Git asks for a new one at first sign-in; ask the user to change the chat password too."
 
 func (i *invocation) printOneTimePasswords(request admin.Request, data []byte) error {
 	var issued oneTimePasswords

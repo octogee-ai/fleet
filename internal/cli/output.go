@@ -59,7 +59,7 @@ func (u ui) mark(glyph func(string) string, symbol, plain, text string) {
 }
 
 func (u ui) ok(text string)   { u.mark(u.style.green, "✓", "", text) }
-func (u ui) warn(text string) { u.mark(u.style.yellow, "⚠", "warning: ", text) }
+func (u ui) warn(text string) { u.mark(u.style.yellow, "⚠", "", text) }
 func (u ui) next(text string) { u.mark(u.style.cyan, "→", "next: ", text) }
 
 // check shows a yes-or-no cell: a tick at a terminal, true or false when piped.

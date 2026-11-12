@@ -233,8 +233,8 @@ func releaseStatus(i *invocation) error {
 		return i.printJSON(raw)
 	}
 	i.line(fmt.Sprintf("%s: %d of %d serving gateways converged", i.style.dot(response.Summary.Status), response.Summary.Converged, response.Summary.Serving))
-	for _, blocker := range response.Summary.Blockers {
-		i.warn("outstanding: " + blocker)
+	if len(response.Summary.Blockers) > 0 {
+		i.warn("outstanding: " + strings.Join(response.Summary.Blockers, "; "))
 	}
 	rows := make([][]string, 0, len(response.Gateways))
 	for _, gateway := range response.Gateways {

@@ -194,6 +194,14 @@ func TestDriftNamesThePlacementTarget(t *testing.T) {
 	expectContains(t, run.stdout, "drift: ada is placed on shared-a but the placement target is shared-b")
 }
 
+func TestPipedDriftLinesKeepTheirText(t *testing.T) {
+	drifted := withUser("ada", func(u *fixtureUser) { u.target = "shared-b" })
+	run := fleetWith(t, drifted, runOptions{}, "user", "ls")
+	if !strings.HasPrefix(lineWith(t, run.stdout, "placement target"), "drift: ada") {
+		t.Fatalf("a piped drift line starts with drift:\n%s", run.stdout)
+	}
+}
+
 func TestDriftNamesWhereAMountedUserIsPlaced(t *testing.T) {
 	drifted := withUser("ada", func(u *fixtureUser) { u.gatewayID, u.target = "shared-b", "shared-b" })
 	run := fleetWith(t, drifted, runOptions{}, "user", "ls")
