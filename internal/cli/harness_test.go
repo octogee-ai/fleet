@@ -114,6 +114,8 @@ type runOptions struct {
 	historyLimit     time.Duration
 	alterSummary     func(id string, summary map[string]any)
 	alterUser        func(name string, user map[string]any)
+	detailsFailFor   string
+	interruptDetails bool
 }
 
 type fleetRun struct {
@@ -177,6 +179,8 @@ func (r fleetRun) containsRequest(want adminRequest) bool {
 type adminStub struct {
 	fixture fleetFixture
 	options runOptions
+	// interrupt cancels the command's context, as Ctrl-C does.
+	interrupt context.CancelFunc
 
 	mutex    sync.Mutex
 	requests []recordedRequest
@@ -356,7 +360,7 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintln(w, `{"timestamp":"2026-11-10T00:00:01Z","severity":"WARNING","service":"fleet","instance":"admin-api","message":"Older entries in this window were not read. Shorten since or add a filter.","details":{"truncated":true}}`)
 		}
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "details":
-		s.serveDetails(w, segments[1])
+		s.serveDetails(w, r, segments[1])
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "releases":
 		writeJSON(w, http.StatusOK, map[string]any{"releases": []map[string]any{{"release": 3, "imageTag": "v42", "live": true, "desired": true}}})
 	case len(segments) == 3 && segments[0] == "users" && segments[2] == "broker-diagnostics":
@@ -368,8 +372,13 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *adminStub) serveDetails(w http.ResponseWriter, id string) {
-	if s.options.detailsFailWith != 0 {
+func (s *adminStub) serveDetails(w http.ResponseWriter, r *http.Request, id string) {
+	if s.options.interruptDetails {
+		s.interrupt()
+		<-r.Context().Done()
+		return
+	}
+	if s.options.detailsFailWith != 0 && (s.options.detailsFailFor == "" || s.options.detailsFailFor == id) {
 		writeJSON(w, s.options.detailsFailWith, s.refusal("details are unavailable"))
 		return
 	}
@@ -673,7 +682,10 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 	if options.defaultHTTP {
 		runtime.HTTP = nil
 	}
-	exit := Run(context.Background(), argv, runtime)
+	ctx, interrupt := context.WithCancel(context.Background())
+	defer interrupt()
+	stub.interrupt = interrupt
+	exit := Run(ctx, argv, runtime)
 	return fleetRun{
 		exit:        exit,
 		stdout:      stdout.String(),

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -265,6 +266,41 @@ func TestOddUserDisplayFieldsNeverBlockAMutation(t *testing.T) {
 		t.Fatalf("exit %d: %s", run.exit, run.stderr)
 	}
 	run.onlyDryRun(t)
+}
+
+func TestUserInspectFailsWhenTheVMStateCouldNotBeRead(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{detailsFailWith: http.StatusInternalServerError}, "user", "inspect", "grace")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "isolated gateway"), "unknown")
+	expectContains(t, run.stderr, "could not read the VM state of 1 of 1 isolated gateways")
+}
+
+func TestUserInspectInJSONMarksAVMStateThatCouldNotBeRead(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{detailsFailWith: http.StatusInternalServerError}, "user", "inspect", "grace", "--format=json")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	var document map[string]any
+	if err := json.Unmarshal([]byte(run.stdout), &document); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, run.stdout)
+	}
+	entry := document["isolatedGateways"].([]any)[0].(map[string]any)
+	if vm, present := entry["vm"]; !present || vm != nil {
+		t.Fatalf("expected vm: null, got %+v", entry)
+	}
+	errors := document["errors"].([]any)
+	if len(errors) != 1 || errors[0].(map[string]any)["gatewayId"] != "iso-grace" {
+		t.Fatalf("errors %+v", errors)
+	}
+}
+
+func TestAnInterruptWhileReadingTheUsersVMFails(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{interruptDetails: true}, "user", "inspect", "grace")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
 }
 
 func TestUserBrokerIsReadOnly(t *testing.T) {

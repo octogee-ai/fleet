@@ -168,14 +168,41 @@ func TestGatewayListShowsTheVMStateOfIsolatedGateways(t *testing.T) {
 	}
 }
 
-func TestGatewayListSaysWhenAVMStateCouldNotBeRead(t *testing.T) {
+func TestGatewayListPrintsWhatItReadAndFailsWhenAVMStateCouldNotBeRead(t *testing.T) {
 	run := fleetWith(t, fixture, runOptions{detailsFailWith: http.StatusInternalServerError}, "gateway", "ls")
-	if run.exit != 0 {
-		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
 	}
 	expectContains(t, lineWith(t, run.stdout, "iso-grace"), "unknown")
-	expectContains(t, run.stderr, "iso-grace")
+	expectContains(t, lineWith(t, run.stdout, "shared-a"), "ready")
 	expectContains(t, run.stderr, "details are unavailable")
+	expectContains(t, run.stderr, "could not read the VM state of 1 of 1 isolated gateways")
+}
+
+func withIsolatedGateway(id, owner, vm string) fleetFixture {
+	changed := fixture
+	changed.gateways = append(append([]fixtureGateway{}, fixture.gateways...), fixtureGateway{id: id, class: "isolated", desired: "running", owner: owner, vm: vm})
+	return changed
+}
+
+func TestGatewayListNamesEachGatewayWhoseVMStateCouldNotBeRead(t *testing.T) {
+	two := withIsolatedGateway("iso-alan", "u-alan", "RUNNING")
+	run := fleetWith(t, two, runOptions{detailsFailWith: http.StatusInternalServerError, detailsFailFor: "iso-alan"}, "gateway", "ls")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "iso-grace"), "suspended")
+	expectContains(t, lineWith(t, run.stdout, "iso-alan"), "unknown")
+	expectContains(t, lineWith(t, run.stderr, "details are unavailable"), "iso-alan")
+	expectContains(t, run.stderr, "could not read the VM state of 1 of 2 isolated gateways")
+}
+
+func TestAnInterruptWhileReadingVMStatesFails(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{interruptDetails: true}, "gateway", "ls")
+	if run.exit == 0 {
+		t.Fatalf("expected a failure:\n%s", run.stdout)
+	}
+	expectContains(t, run.stderr, "interrupted")
 }
 
 func TestGatewayInspectShowsTheGatewayAsFields(t *testing.T) {

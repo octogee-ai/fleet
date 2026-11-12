@@ -129,22 +129,25 @@ func userInspect(i *invocation) error {
 			owned = append(owned, gateway)
 		}
 	}
-	details, failures := i.detailsOf(owned)
-	for index, gateway := range owned {
-		if failures[index] != nil {
-			i.notice(fmt.Sprintf("could not read the VM state of %s: %v", gateway.GatewayID, failures[index]))
-		}
+	reads, err := i.readVMs(owned)
+	if err != nil {
+		return err
 	}
 	if i.json {
 		isolated := make([]map[string]any, 0, len(owned))
+		failures := make([]map[string]any, 0)
 		for index, gateway := range owned {
-			entry := map[string]any{"gateway": gateway.record}
-			if failures[index] == nil {
-				entry["vm"] = details[index].vmRecord
+			entry := map[string]any{"gateway": gateway.record, "vm": reads.details[index].vmRecord}
+			if failure := reads.failures[index]; failure != nil {
+				entry["vm"] = nil
+				failures = append(failures, map[string]any{"gatewayId": gateway.GatewayID, "error": failure.Error()})
 			}
 			isolated = append(isolated, entry)
 		}
-		return i.printJSON(map[string]any{"user": user.record, "isolatedGateways": isolated})
+		if err := i.printJSON(map[string]any{"user": user.record, "isolatedGateways": isolated, "errors": failures}); err != nil {
+			return err
+		}
+		return reads.failed()
 	}
 	i.line(i.style.bold(user.Name) + "  " + i.style.dim(user.ID))
 	target := ""
@@ -160,11 +163,7 @@ func userInspect(i *invocation) error {
 		{"placement", i.style.state(user.DriftState)},
 	}
 	for index, gateway := range owned {
-		vm := i.style.dim("unknown")
-		if failures[index] == nil {
-			machine := details[index].Control.VM
-			vm = i.style.toned(machine.tone(), machine.state())
-		}
+		vm := reads.cell(i.style, index)
 		userFields = append(userFields, field{"isolated gateway", fmt.Sprintf("%s %s, VM %s", i.style.bold(gateway.GatewayID), i.style.state(gateway.DesiredStatus), vm)})
 	}
 	if text := user.LatestOperation.unreadable(); text != "" {
@@ -176,7 +175,7 @@ func userInspect(i *invocation) error {
 	if line := user.drift(); line != "" {
 		i.warn(line)
 	}
-	return nil
+	return reads.failed()
 }
 
 func userAdd(i *invocation) error {

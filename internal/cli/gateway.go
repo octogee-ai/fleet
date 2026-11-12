@@ -99,40 +99,29 @@ func gatewayList(i *invocation) error {
 	if i.json {
 		return i.printJSON(map[string]any{"gateways": recordsOf(gateways, func(g gatewaySummary) json.RawMessage { return g.record })})
 	}
-	vms := i.vmStates(gateways)
-	rows := make([][]string, 0, len(gateways))
-	for _, gateway := range gateways {
-		rows = append(rows, []string{
-			i.style.bold(gateway.GatewayID), dash(gateway.GatewayClass), i.style.state(gateway.DesiredStatus), i.style.state(string(gateway.Status)),
-			vms[gateway.GatewayID], dash(string(gateway.ImageTag)), gateway.mounted(), i.ago(gateway.LastHeartbeatAt),
-		})
-	}
-	i.table([]string{"gateway", "class", "desired", "status", "vm", "image", "mounted", "heartbeat"}, rows, "no gateways")
-	return nil
-}
-
-// vmStates reads the VM state of every isolated gateway that is not retired.
-// A gateway whose state could not be read shows unknown, with a warning.
-func (i *invocation) vmStates(gateways []gatewaySummary) map[string]string {
-	states := map[string]string{}
 	var isolated []gatewaySummary
 	for _, gateway := range gateways {
-		states[gateway.GatewayID] = "-"
 		if gateway.isolated() && gateway.DesiredStatus != statusRetired {
 			isolated = append(isolated, gateway)
 		}
 	}
-	details, failures := i.detailsOf(isolated)
-	for index, gateway := range isolated {
-		if failures[index] != nil {
-			states[gateway.GatewayID] = i.style.dim("unknown")
-			i.notice(fmt.Sprintf("could not read the VM state of %s: %v", gateway.GatewayID, failures[index]))
-			continue
-		}
-		vm := details[index].Control.VM
-		states[gateway.GatewayID] = i.style.toned(vm.tone(), vm.state())
+	reads, err := i.readVMs(isolated)
+	if err != nil {
+		return err
 	}
-	return states
+	vms := map[string]string{}
+	for index, gateway := range isolated {
+		vms[gateway.GatewayID] = reads.cell(i.style, index)
+	}
+	rows := make([][]string, 0, len(gateways))
+	for _, gateway := range gateways {
+		rows = append(rows, []string{
+			i.style.bold(gateway.GatewayID), dash(gateway.GatewayClass), i.style.state(gateway.DesiredStatus), i.style.state(string(gateway.Status)),
+			dash(vms[gateway.GatewayID]), dash(string(gateway.ImageTag)), gateway.mounted(), i.ago(gateway.LastHeartbeatAt),
+		})
+	}
+	i.table([]string{"gateway", "class", "desired", "status", "vm", "image", "mounted", "heartbeat"}, rows, "no gateways")
+	return reads.failed()
 }
 
 func gatewayInspect(i *invocation) error {

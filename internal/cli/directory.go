@@ -149,12 +149,19 @@ func (i *invocation) details(id string) (gatewayDetails, error) {
 }
 
 // detailsReads bounds how many gateway details are read at once.
-const detailsReads = 8
+const detailsReads = 4
 
-// detailsOf reads the details of each gateway at once, a few at a time.
-func (i *invocation) detailsOf(gateways []gatewaySummary) ([]gatewayDetails, []error) {
-	details := make([]gatewayDetails, len(gateways))
-	failures := make([]error, len(gateways))
+// vmReads are the VM states of some isolated gateways, each read or failed.
+type vmReads struct {
+	gateways []gatewaySummary
+	details  []gatewayDetails
+	failures []error
+}
+
+// readVMs reads each gateway's details, a few at a time, and warns about each
+// one it could not read. An interrupt stops the command.
+func (i *invocation) readVMs(gateways []gatewaySummary) (vmReads, error) {
+	reads := vmReads{gateways: gateways, details: make([]gatewayDetails, len(gateways)), failures: make([]error, len(gateways))}
 	slots := make(chan struct{}, detailsReads)
 	var group sync.WaitGroup
 	for index, gateway := range gateways {
@@ -163,11 +170,42 @@ func (i *invocation) detailsOf(gateways []gatewaySummary) ([]gatewayDetails, []e
 		go func() {
 			defer group.Done()
 			defer func() { <-slots }()
-			details[index], failures[index] = i.details(gateway.GatewayID)
+			reads.details[index], reads.failures[index] = i.details(gateway.GatewayID)
 		}()
 	}
 	group.Wait()
-	return details, failures
+	if err := i.ctx.Err(); err != nil {
+		return reads, fmt.Errorf("interrupted while reading VM states: %w", err)
+	}
+	for index, gateway := range gateways {
+		if reads.failures[index] != nil {
+			i.notice(fmt.Sprintf("could not read the VM state of %s: %v", gateway.GatewayID, reads.failures[index]))
+		}
+	}
+	return reads, nil
+}
+
+// cell is the gateway's VM state for a table or field, or unknown.
+func (r vmReads) cell(style palette, index int) string {
+	if r.failures[index] != nil {
+		return style.dim("unknown")
+	}
+	vm := r.details[index].Control.VM
+	return style.toned(vm.tone(), vm.state())
+}
+
+// failed is the error a command returns once it has printed what it read.
+func (r vmReads) failed() error {
+	count := 0
+	for _, failure := range r.failures {
+		if failure != nil {
+			count++
+		}
+	}
+	if count == 0 {
+		return nil
+	}
+	return fmt.Errorf("could not read the VM state of %d of %d isolated gateways", count, len(r.gateways))
 }
 
 type placedUser struct {
