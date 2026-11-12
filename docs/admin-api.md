@@ -140,3 +140,13 @@ Takes no body. Sets new random passwords on chat and git and returns them once. 
 ```
 
 `404` means the user does not exist. `409` means the user has not finished provisioning or the account is not active. Any other failure returns no passwords; calling it again replaces both.
+
+## `POST /users/<id>/isolated-gateway`
+
+Takes `{"sizingProfile": "<name>"}`. Creates the user's isolated gateway at that sizing profile and queues a migration of the user to it. Returns `202`:
+
+```json
+{ "uid": "u-ada", "gatewayId": "<id>", "operationId": "<id>", "sizingProfile": "<name>", "fromGatewayId": "shared-a", "managedBy": "operator" }
+```
+
+A dry run answers with one plan whose `mutation` carries `uid`, `sizingProfile` and `fromGatewayId`. Refusals carry `{"code": "<code>", "error": "<message>"}`, on a dry run as well as when applied. `400` means the sizing profile is unknown. `404` with `user-not-found` means the user does not exist. `409` with `user-has-isolated-gateway` means the user already has one, named by `gatewayId`; `isolated-gateway-retiring`, `user-not-provisioned` and `user-not-active` are also `409`.

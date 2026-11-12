@@ -17,6 +17,7 @@ func TestUserMutations(t *testing.T) {
 		{[]string{"user", "assign", "alan", "--to=shared-a"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-alan/assign", Body: map[string]any{"gatewayId": "shared-a"}}},
 		{[]string{"user", "migrate", "ada", "--to=shared-b"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-ada/migrate", Body: map[string]any{"to": "shared-b"}}},
 		{[]string{"user", "migrate", "ada", "--to=shared-b", "--source-transfer=retained-pod"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-ada/migrate", Body: map[string]any{"to": "shared-b", "sourceTransfer": "retained-pod"}}},
+		{[]string{"user", "migrate", "ada", "--to-isolated=standard"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-ada/isolated-gateway", Body: map[string]any{"sizingProfile": "standard"}}},
 		{[]string{"user", "unassign", "ada"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-ada/unassign"}},
 		{[]string{"user", "replace-vm", "grace"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-grace/vm/replace", Body: map[string]any{}}},
 		{[]string{"user", "delete", "alan"}, adminRequest{Method: http.MethodPost, Path: prefix + "u-alan/delete", Body: map[string]any{"eraseNow": false}}},
@@ -72,6 +73,54 @@ func TestUserMigrateRefusesAnUnknownSourceTransferMode(t *testing.T) {
 
 func TestUserMigrateDoesNothingWhenAlreadyOnTheTarget(t *testing.T) {
 	expectRead(t, fleet(t, "user", "migrate", "ada", "--to=shared-a", "--apply"))
+}
+
+func TestUserMigrateToIsolatedIsADryRunUntilApply(t *testing.T) {
+	want := adminRequest{Method: http.MethodPost, Path: "/api/admin/users/u-ada/isolated-gateway", Body: map[string]any{"sizingProfile": "standard"}}
+
+	checked := fleet(t, "user", "migrate", "ada", "--to-isolated=standard")
+	expectRead(t, checked)
+	expectContains(t, checked.stdout, "dry run: the Admin API would")
+	dryRun := checked.onlyDryRun(t).adminRequest
+	if !reflect.DeepEqual(dryRun.Query, map[string]string{"dryRun": "true"}) {
+		t.Fatalf("query %+v", dryRun.Query)
+	}
+	dryRun.Query = nil
+	if !reflect.DeepEqual(dryRun, want) {
+		t.Fatalf("checked %+v, want %+v", dryRun, want)
+	}
+
+	applied := fleet(t, "user", "migrate", "ada", "--to-isolated=standard", "--apply")
+	expectApplied(t, applied, want)
+	expectContains(t, applied.stdout, "operation op-recorded")
+}
+
+func TestUserMigrateNeedsExactlyOneDestination(t *testing.T) {
+	cases := map[string][]string{
+		"both destinations":                     {"user", "migrate", "ada", "--to=shared-b", "--to-isolated=standard"},
+		"no destination":                        {"user", "migrate", "ada"},
+		"a source transfer to an isolated move": {"user", "migrate", "ada", "--to-isolated=standard", "--source-transfer=retained-pod"},
+		"an empty sizing profile":               {"user", "migrate", "ada", "--to-isolated="},
+	}
+	for name, argv := range cases {
+		t.Run(name, func(t *testing.T) {
+			run := fleet(t, append(append([]string{}, argv...), "--apply")...)
+			expectNothingSent(t, run)
+			expectContains(t, run.stderr, "--to")
+		})
+	}
+}
+
+func TestUserMigrateToIsolatedPointsAnUnplacedUserAtAssign(t *testing.T) {
+	run := fleet(t, "user", "migrate", "alan", "--to-isolated=standard", "--apply")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "user assign")
+}
+
+func TestUserMigrateToIsolatedRefusalExitsNonZero(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{refuseDryRunWith: http.StatusConflict}, "user", "migrate", "ada", "--to-isolated=standard")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "would refuse this request (409)")
 }
 
 func TestUserReplaceVMRequiresBothBreakGlassFlags(t *testing.T) {
