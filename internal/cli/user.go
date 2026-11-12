@@ -22,17 +22,7 @@ var userCommands = []*command{
 	{path: words("user replace-vm"), usage: "<user> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace the VM of the user's isolated gateway.", flags: flagSet{"force": bareFlag, "accept-boot-data-loss": bareFlag}, mutating: true, run: userReplaceVM},
 	{path: words("user delete"), usage: "<user> [--erase-now]", argc: 1, summary: "Schedule a user's deletion; --erase-now erases at once.", flags: flagSet{"erase-now": bareFlag}, mutating: true, run: userDelete},
 	{path: words("user broker"), usage: "<user>", argc: 1, summary: "Show the user's model broker diagnostics.", run: userBroker},
-	{path: words("user lease request"), usage: "<user>", argc: 1, summary: "Request the user's activation lease.", mutating: true, run: userAction("activation-lease", nil)},
-	{path: words("user lease cancel"), usage: "<user> --lease=<id> --generation=<n>", argc: 1, summary: "Cancel the user's activation lease.", flags: leaseFlags, required: leaseRequired, mutating: true, run: leaseAction("cancel")},
-	{path: words("user lease terminate"), usage: "<user> --lease=<id> --generation=<n>", argc: 1, summary: "Terminate the user's activation lease.", flags: leaseFlags, required: leaseRequired, mutating: true, run: leaseAction("terminate")},
-	{path: words("user lease return"), usage: "<user> --lease=<id> --generation=<n>", argc: 1, summary: "Return the user's activation lease.", flags: leaseFlags, required: leaseRequired, mutating: true, run: leaseAction("return")},
-	{path: words("user lease retry-return"), usage: "<user> --operation=<id>", argc: 1, summary: "Retry a failed lease return.", flags: flagSet{"operation": valueFlag}, required: []string{"operation"}, mutating: true, run: leaseRetryReturn},
 }
-
-var (
-	leaseFlags    = flagSet{"lease": valueFlag, "generation": valueFlag}
-	leaseRequired = []string{"lease", "generation"}
-)
 
 func userList(i *invocation) error {
 	filter := i.value("gateway")
@@ -242,34 +232,4 @@ func userBroker(i *invocation) error {
 		return err
 	}
 	return i.printJSON(diagnostics)
-}
-
-func leaseAction(action string) func(*invocation) error {
-	return func(i *invocation) error {
-		lease, err := opaqueID("lease", i.value("lease"))
-		if err != nil {
-			return err
-		}
-		generation, err := wholeInt("generation", i.value("generation"))
-		if err != nil {
-			return err
-		}
-		user, err := i.namedUser()
-		if err != nil {
-			return err
-		}
-		return i.post(admin.Path("users", user.ID, "activation-lease", action), map[string]any{"leaseId": lease, "generation": generation})
-	}
-}
-
-func leaseRetryReturn(i *invocation) error {
-	operation, err := opaqueID("operation", i.value("operation"))
-	if err != nil {
-		return err
-	}
-	user, err := i.namedUser()
-	if err != nil {
-		return err
-	}
-	return i.post(admin.Path("users", user.ID, "activation-lease", "return", "retry"), map[string]any{"operationId": operation})
 }
