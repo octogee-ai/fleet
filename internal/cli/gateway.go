@@ -194,18 +194,23 @@ func gatewayInspect(i *invocation) error {
 	return nil
 }
 
-// pods is each pod with whether it is ready.
+// pods is each pod with whether it is ready, its ready containers, and its
+// phase when it is not running.
 func (i *invocation) pods(gateway gatewaySummary) string {
 	if gateway.PodDiagnostics == nil {
 		return ""
 	}
 	pods := make([]string, 0, len(gateway.PodDiagnostics.Pods))
 	for _, pod := range gateway.PodDiagnostics.Pods {
-		ready := "not ready"
-		if pod.Ready {
-			ready = "ready"
+		state := "not ready"
+		if pod.ready() {
+			state = "ready"
 		}
-		pods = append(pods, pod.Name+" "+i.style.state(ready))
+		text := fmt.Sprintf("%s %s %d/%d", pod.Name, i.style.state(state), pod.ReadyContainers, pod.TotalContainers)
+		if pod.Phase != "Running" {
+			text += " " + i.style.yellow(dash(pod.Phase))
+		}
+		pods = append(pods, text)
 	}
 	return strings.Join(pods, ", ")
 }

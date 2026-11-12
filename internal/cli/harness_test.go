@@ -112,6 +112,7 @@ type runOptions struct {
 	logsHang         bool
 	logsTruncated    bool
 	historyLimit     time.Duration
+	alterSummary     func(id string, summary map[string]any)
 }
 
 type fleetRun struct {
@@ -400,7 +401,10 @@ func (s *adminStub) details(gateway fixtureGateway) map[string]any {
 	return map[string]any{
 		"mountedUsers": mounted,
 		"recentOperations": []map[string]any{
-			{"id": "op-9", "kind": "restart", "status": "completed", "createdBy": "operator@example.test", "createdAt": minutesAgo(20)},
+			{
+				"id": "op-9", "kind": "restart-gateway", "status": "completed", "createdBy": "operator@example.test",
+				"createdAt": minutesAgo(20), "startedAt": minutesAgo(20), "completedAt": minutesAgo(19), "input": map[string]any{"gatewayId": gateway.id}, "steps": []any{},
+			},
 		},
 		"control": map[string]any{
 			"desiredStatus": gateway.desired, "desiredRelease": 3, "liveRelease": 3,
@@ -414,25 +418,50 @@ func minutesAgo(minutes int) int64 {
 	return fixedNow.Add(-time.Duration(minutes) * time.Minute).UnixMilli()
 }
 
+// gatewaySummaries have the shape of the Admin API's gateway summaries: mounted
+// users by name, the owner or null, and pod diagnostics by container counts.
 func (s *adminStub) gatewaySummaries() []map[string]any {
 	summaries := make([]map[string]any, 0, len(s.fixture.gateways))
 	for _, gateway := range s.fixture.gateways {
-		summaries = append(summaries, map[string]any{
+		summary := map[string]any{
 			"gatewayId":       gateway.id,
 			"gatewayClass":    gateway.class,
 			"desiredStatus":   gateway.desired,
 			"status":          "ready",
 			"imageTag":        "v42",
-			"mountedUsers":    gateway.mounted,
-			"ownerId":         gateway.owner,
-			"lastHeartbeatAt": "2026-11-10T00:02:00Z",
-			"lastError":       map[string]any{"message": "ensure failed on " + gateway.id},
+			"openclawVersion": "2026.11.1",
+			"mountedUsers":    s.namesOf(gateway.mounted),
+			"ownerId":         nullable(gateway.owner),
+			"lastHeartbeatAt": "2026-11-10T00:02:00.000Z",
+			"lastError":       map[string]any{"slug": "ensure", "message": "ensure failed on " + gateway.id, "at": "2026-11-09T23:00:00.000Z"},
 			"podDiagnostics": map[string]any{
-				"pods": []map[string]any{{"name": "pod-" + gateway.id, "ready": true}},
+				"status": "ready", "totalPods": 1, "readyPods": 1, "totalRestarts": 0,
+				"spotPods": 1, "onDemandPods": 0, "unknownCapacityPods": 0,
+				"pods": []map[string]any{{
+					"name": "pod-" + gateway.id, "uid": "pod-uid-" + gateway.id, "replicaSetUid": nil,
+					"phase": "Running", "readyContainers": 2, "totalContainers": 2, "restarts": 0, "reason": nil,
+					"nodeName": "node-a", "instanceId": nil, "nodePool": "nodes-a", "capacityType": "spot", "ageMs": 3600000,
+				}},
 			},
-		})
+		}
+		if s.options.alterSummary != nil {
+			s.options.alterSummary(gateway.id, summary)
+		}
+		summaries = append(summaries, summary)
 	}
 	return summaries
+}
+
+func (s *adminStub) namesOf(ids []string) []string {
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		for _, user := range s.fixture.users {
+			if user.id == id {
+				names = append(names, user.name)
+			}
+		}
+	}
+	return names
 }
 
 func (s *adminStub) mountedOn(userID string) string {

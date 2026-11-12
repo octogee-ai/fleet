@@ -52,20 +52,29 @@ A dry run does not predict checks made while a change is applied, an idempotency
     "imageTag": "v42",
     "openclawVersion": "2026.11.1",
     "mountedUsers": ["ada"],
-    "lastHeartbeatAt": "2026-11-10T00:00:00Z",
+    "lastHeartbeatAt": "2026-11-10T00:00:00.000Z",
     "ownerId": null
   }]
 }
 ```
 
-`gatewayClass` is `shared` or `isolated`. An isolated gateway names its `ownerId`. A summary also carries `lastError` (`{"message"}`) and `podDiagnostics` (`{"pods": [{"name", "ready"}]}`) when the platform has them.
+`gatewayClass` is `shared` or `isolated`. An isolated gateway names its `ownerId`. A summary also carries `lastError` (`{"slug", "message", "at"}`) and `podDiagnostics` when the platform has them:
+
+```json
+{
+  "status": "ready", "totalPods": 1, "readyPods": 1,
+  "pods": [{ "name": "<pod>", "phase": "Running", "readyContainers": 2, "totalContainers": 2, "restarts": 0, "reason": null }]
+}
+```
+
+`octogee-fleet` counts a pod as ready when its `phase` is `Running` and every container is ready.
 
 ## `GET /gateways/<gateway>/details`
 
 ```json
 {
   "mountedUsers": [{ "uid": "u-ada", "username": "ada", "email": "ada@example.com", "lastActive": "2026-11-10T00:00:00Z" }],
-  "recentOperations": [{ "id": "op-1", "kind": "restart", "status": "completed", "createdBy": "operator", "createdAt": 1794268800000 }],
+  "recentOperations": [{ "id": "op-1", "kind": "restart-gateway", "status": "completed", "createdBy": "operator", "createdAt": 1794268800000 }],
   "control": {
     "desiredRelease": 3,
     "liveRelease": 3,

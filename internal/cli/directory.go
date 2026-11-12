@@ -37,13 +37,23 @@ type gatewaySummary struct {
 		Message string `json:"message"`
 	} `json:"lastError"`
 	PodDiagnostics *struct {
-		Pods []struct {
-			Name  string `json:"name"`
-			Ready bool   `json:"ready"`
-		} `json:"pods"`
+		Pods []podDiagnostic `json:"pods"`
 	} `json:"podDiagnostics"`
 
 	record json.RawMessage
+}
+
+// podDiagnostic is one pod as Kubernetes reports it.
+type podDiagnostic struct {
+	Name            string `json:"name"`
+	Phase           string `json:"phase"`
+	ReadyContainers int    `json:"readyContainers"`
+	TotalContainers int    `json:"totalContainers"`
+}
+
+// ready is true for a running pod whose containers are all ready.
+func (p podDiagnostic) ready() bool {
+	return p.Phase == "Running" && p.TotalContainers > 0 && p.ReadyContainers == p.TotalContainers
 }
 
 // isolated reports whether the gateway serves one user on its own VM.

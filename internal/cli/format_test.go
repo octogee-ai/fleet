@@ -77,7 +77,7 @@ func TestAnAppliedChangeInJSONCarriesTheAdminAPIResponse(t *testing.T) {
 func TestJSONKeepsAbsoluteTimes(t *testing.T) {
 	run := fleet(t, "gateway", "ls", "--format=json")
 	decodeJSON(t, run)
-	expectContains(t, run.stdout, "2026-11-10T00:02:00Z")
+	expectContains(t, run.stdout, "2026-11-10T00:02:00.000Z")
 }
 
 func TestABreakGlassWarningGoesToStderrInJSON(t *testing.T) {

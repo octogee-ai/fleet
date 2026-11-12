@@ -186,7 +186,34 @@ func TestGatewayInspectShowsTheGatewayAsFields(t *testing.T) {
 	expectContains(t, lineWith(t, run.stdout, "vm"), "suspended (idle)")
 	expectContains(t, lineWith(t, run.stdout, "owner"), "u-grace")
 	expectContains(t, lineWith(t, run.stdout, "grace@example.test"), "grace")
-	expectContains(t, lineWith(t, run.stdout, "op-9"), "restart")
+	expectContains(t, lineWith(t, run.stdout, "op-9"), "restart-gateway")
+}
+
+func firstPod(summary map[string]any) map[string]any {
+	return summary["podDiagnostics"].(map[string]any)["pods"].([]map[string]any)[0]
+}
+
+func TestGatewayInspectReadsPodReadinessFromItsContainers(t *testing.T) {
+	run := fleet(t, "gateway", "inspect", "iso-grace")
+	row := lineWith(t, run.stdout, "pod-iso-grace")
+	expectContains(t, row, "ready 2/2")
+	if strings.Contains(row, "not ready") {
+		t.Fatalf("a running pod with every container ready is ready:\n%s", row)
+	}
+}
+
+func TestAPodWithAContainerThatIsNotReadyIsNotReady(t *testing.T) {
+	alter := func(_ string, summary map[string]any) { firstPod(summary)["readyContainers"] = 1 }
+	run := fleetWith(t, fixture, runOptions{alterSummary: alter}, "gateway", "inspect", "iso-grace")
+	expectContains(t, lineWith(t, run.stdout, "pod-iso-grace"), "not ready 1/2")
+}
+
+func TestAPodThatIsNotRunningIsNotReadyAndNamesItsPhase(t *testing.T) {
+	alter := func(_ string, summary map[string]any) { firstPod(summary)["phase"] = "Pending" }
+	run := fleetWith(t, fixture, runOptions{alterSummary: alter}, "gateway", "inspect", "iso-grace")
+	row := lineWith(t, run.stdout, "pod-iso-grace")
+	expectContains(t, row, "not ready 2/2")
+	expectContains(t, row, "Pending")
 }
 
 func TestGatewayInspectOfAnUnknownGatewaySendsNoDetailsRead(t *testing.T) {
