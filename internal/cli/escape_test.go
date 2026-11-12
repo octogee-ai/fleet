@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 const clearScreen = "\x1b[2J"
@@ -15,8 +16,8 @@ func withEmail(name, email string) fleetFixture {
 func expectNoControlCharacters(t *testing.T, text string) {
 	t.Helper()
 	for _, r := range text {
-		if r != '\n' && (r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)) {
-			t.Fatalf("output carries the control character %U:\n%q", r, text)
+		if r != '\n' && (unicode.IsControl(r) || unicode.Is(unicode.Cf, r)) {
+			t.Fatalf("output carries the control or format character %U:\n%q", r, text)
 		}
 	}
 }
@@ -28,6 +29,12 @@ func TestTextFromTheAdminAPIIsEscapedBeforeItReachesTheTerminal(t *testing.T) {
 		expectNoControlCharacters(t, run.stdout)
 		expectContains(t, run.stdout, `grace\x1b[2J@example.test`)
 	}
+}
+
+func TestFormatCharactersFromTheAdminAPIAreEscaped(t *testing.T) {
+	run := fleetWith(t, withEmail("grace", "grace\u202e@example.test\u200b"), runOptions{}, "user", "inspect", "grace")
+	expectNoControlCharacters(t, run.stdout)
+	expectContains(t, run.stdout, `grace\u202e@example.test\u200b`)
 }
 
 func TestEscapedCellsKeepTheTableAligned(t *testing.T) {
