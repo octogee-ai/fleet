@@ -159,7 +159,7 @@ func dryRunRefusal(err error) error {
 	if !errors.As(err, &refused) || refused.Status == http.StatusUnauthorized || refused.Status == http.StatusForbidden {
 		return err
 	}
-	return fmt.Errorf("dry run: the Admin API would refuse this request (%d): %s", refused.Status, refused.Message)
+	return fmt.Errorf("dry run: the Admin API would refuse this request (%s): %s\nnothing was changed", refused.Label(), refused.Message)
 }
 
 type dryRunAnswer struct {

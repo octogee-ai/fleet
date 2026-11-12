@@ -103,6 +103,8 @@ type runOptions struct {
 	appliesDryRuns   bool
 	plansNothing     bool
 	env              map[string]string
+	errorCode        string
+	refuseApplyWith  int
 }
 
 type fleetRun struct {
@@ -181,7 +183,7 @@ func (s *adminStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.options.rejectWith != 0 {
-		writeJSON(w, s.options.rejectWith, map[string]any{"error": "token rejected"})
+		writeJSON(w, s.options.rejectWith, s.refusal("token rejected"))
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -193,7 +195,7 @@ func (s *adminStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *adminStub) serveDryRun(w http.ResponseWriter, r *http.Request) {
 	if s.options.refuseDryRunWith != 0 {
-		writeJSON(w, s.options.refuseDryRunWith, map[string]any{"error": "gateway has a current retirement claim"})
+		writeJSON(w, s.options.refuseDryRunWith, s.refusal("gateway has a current retirement claim"))
 		return
 	}
 	if s.options.plansNothing {
@@ -214,6 +216,14 @@ func (s *adminStub) serveDryRun(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *adminStub) refusal(message string) map[string]any {
+	body := map[string]any{"error": message}
+	if s.options.errorCode != "" {
+		body["code"] = s.options.errorCode
+	}
+	return body
+}
+
 func (s *adminStub) lastBody() map[string]any {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -223,6 +233,10 @@ func (s *adminStub) lastBody() map[string]any {
 func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("dryRun") == "true" && !s.options.appliesDryRuns {
 		s.serveDryRun(w, r)
+		return
+	}
+	if s.options.refuseApplyWith != 0 {
+		writeJSON(w, s.options.refuseApplyWith, s.refusal("a migration is in flight for this gateway"))
 		return
 	}
 	if !strings.HasSuffix(r.URL.Path, "/one-time-passwords") {

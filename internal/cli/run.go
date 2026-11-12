@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -51,7 +52,7 @@ func writeError(out io.Writer, style palette, err error) {
 	}
 	fmt.Fprintf(out, "%s %s\n", style.red("✗"), style.bold(lines[0]))
 	for _, line := range lines[1:] {
-		fmt.Fprintf(out, "  %s\n", line)
+		fmt.Fprintf(out, "  %s %s\n", style.cyan("→"), line)
 	}
 }
 
@@ -97,7 +98,26 @@ func run(ctx context.Context, argv []string, runtime Runtime) error {
 	if err != nil {
 		return err
 	}
-	return cmd.run(invocation)
+	return invocation.explain(cmd.run(invocation))
+}
+
+// explain adds what to try next to an Admin API error.
+func (i *invocation) explain(err error) error {
+	var failed *admin.HTTPError
+	if !errors.As(err, &failed) {
+		return err
+	}
+	switch {
+	case failed.Status == http.StatusUnauthorized && i.environment.OIDC != nil:
+		return fmt.Errorf("%w\nsign in again: octogee-fleet --env=%s login", err, i.name)
+	case failed.Status == http.StatusUnauthorized:
+		return fmt.Errorf("%w\ncheck the token that %s's tokenCommand prints", err, i.name)
+	case failed.Status == http.StatusForbidden:
+		return fmt.Errorf("%w\nthe Admin API accepted the sign-in, but this identity may not do this; check that it is on the platform's operator list", err)
+	case failed.Status >= 500:
+		return fmt.Errorf("%w\nthe Admin API could not finish; try again in a moment", err)
+	}
+	return err
 }
 
 func newInvocation(ctx context.Context, parsed parsedArgs, args []string, runtime Runtime, out ui) (*invocation, error) {

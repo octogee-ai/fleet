@@ -236,14 +236,32 @@ func TestTheCommandLineHasNoDependenciesOutsideTheStandardLibrary(t *testing.T) 
 	}
 }
 
-func TestARejectedSignInStopsBeforeAnyMutation(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			run := fleetWith(t, fixture, runOptions{rejectWith: status}, "gateway", "park", "shared-a", "--apply")
-			expectRefused(t, run)
-			expectContains(t, run.stderr, "rejected this sign-in")
-		})
+func TestARejectedSignInStopsBeforeAnyMutationAndNamesTheRemedy(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{rejectWith: http.StatusUnauthorized}, "gateway", "park", "shared-a", "--apply")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "rejected this sign-in (401)")
+	expectContains(t, run.stderr, "octogee-fleet --env=local login")
+}
+
+func TestAForbiddenRequestIsNotPermittedRatherThanARejectedSignIn(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{rejectWith: http.StatusForbidden, errorCode: "tenant-enforcement"}, "gateway", "park", "shared-a", "--apply")
+	expectRefused(t, run)
+	expectContains(t, run.stderr, "not permitted (403 tenant-enforcement): token rejected")
+	if strings.Contains(run.stderr, "sign-in (") {
+		t.Fatalf("a 403 was reported as a rejected sign-in:\n%s", run.stderr)
 	}
+}
+
+func TestARefusalNamesTheServersCode(t *testing.T) {
+	dryRun := fleetWith(t, fixture, runOptions{refuseDryRunWith: http.StatusConflict, errorCode: "user-has-isolated-gateway"}, "user", "migrate", "ada", "--to-isolated=standard")
+	expectRefused(t, dryRun)
+	expectContains(t, dryRun.stderr, "would refuse this request (409 user-has-isolated-gateway): gateway has a current retirement claim")
+
+	applied := fleetWith(t, fixture, runOptions{refuseApplyWith: http.StatusConflict, errorCode: "migration-in-flight"}, "gateway", "restart", "shared-a", "--apply")
+	if applied.exit == 0 {
+		t.Fatalf("expected a non-zero exit:\n%s", applied.stdout)
+	}
+	expectContains(t, applied.stderr, "refused this request (409 migration-in-flight): a migration is in flight for this gateway")
 }
 
 func TestAnAppliedMutationPrintsItsOperationID(t *testing.T) {
