@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGatewayMutations(t *testing.T) {
@@ -183,6 +185,21 @@ func withIsolatedGateway(id, owner, vm string) fleetFixture {
 	changed := fixture
 	changed.gateways = append(append([]fixtureGateway{}, fixture.gateways...), fixtureGateway{id: id, class: "isolated", desired: "running", owner: owner, vm: vm})
 	return changed
+}
+
+func TestGatewayListReadsAtMostFourVMStatesAtOnce(t *testing.T) {
+	many := fixture
+	many.gateways = append([]fixtureGateway{}, fixture.gateways...)
+	for index := range 12 {
+		many.gateways = append(many.gateways, fixtureGateway{id: fmt.Sprintf("iso-%02d", index), class: "isolated", desired: "running", owner: "u-grace", vm: "RUNNING"})
+	}
+	run := fleetWith(t, many, runOptions{detailsPause: 20 * time.Millisecond}, "gateway", "ls")
+	if run.exit != 0 {
+		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	}
+	if run.detailsPeak > 4 {
+		t.Fatalf("read %d gateway details at once; expected at most 4", run.detailsPeak)
+	}
 }
 
 func TestGatewayListNamesEachGatewayWhoseVMStateCouldNotBeRead(t *testing.T) {

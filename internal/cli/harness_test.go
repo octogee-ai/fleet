@@ -126,6 +126,7 @@ type runOptions struct {
 	detailsFailFor   string
 	interruptDetails bool
 	errorMessage     string
+	detailsPause     time.Duration
 }
 
 type fleetRun struct {
@@ -135,6 +136,7 @@ type fleetRun struct {
 	requests    []recordedRequest
 	issuerForms []url.Values
 	sessionPath string
+	detailsPeak int
 }
 
 func (r recordedRequest) isDryRun() bool { return r.Query["dryRun"] == "true" }
@@ -192,8 +194,10 @@ type adminStub struct {
 	// interrupt cancels the command's context, as Ctrl-C does.
 	interrupt context.CancelFunc
 
-	mutex    sync.Mutex
-	requests []recordedRequest
+	mutex           sync.Mutex
+	requests        []recordedRequest
+	detailsInFlight int
+	detailsPeak     int
 }
 
 func (s *adminStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -248,6 +252,25 @@ func (s *adminStub) refusal(message string) map[string]any {
 		body["code"] = s.options.errorCode
 	}
 	return body
+}
+
+func (s *adminStub) enterDetails() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.detailsInFlight++
+	s.detailsPeak = max(s.detailsPeak, s.detailsInFlight)
+}
+
+func (s *adminStub) leaveDetails() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.detailsInFlight--
+}
+
+func (s *adminStub) peakDetails() int {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.detailsPeak
 }
 
 func (s *adminStub) recorded() []recordedRequest {
@@ -390,6 +413,11 @@ func (s *adminStub) serveDetails(w http.ResponseWriter, r *http.Request, id stri
 		s.interrupt()
 		<-r.Context().Done()
 		return
+	}
+	if s.options.detailsPause > 0 {
+		s.enterDetails()
+		defer s.leaveDetails()
+		time.Sleep(s.options.detailsPause)
 	}
 	if s.options.detailsFailWith != 0 && (s.options.detailsFailFor == "" || s.options.detailsFailFor == id) {
 		writeJSON(w, s.options.detailsFailWith, s.refusal("details are unavailable"))
@@ -706,6 +734,7 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 		requests:    stub.recorded(),
 		issuerForms: issuer.forms,
 		sessionPath: filepath.Join(store.Dir, fixture.environment+".json"),
+		detailsPeak: stub.peakDetails(),
 	}
 }
 
