@@ -93,7 +93,23 @@ octogee-fleet --env=staging user migrate ada --to=shared-b --apply
 octogee-fleet --env=staging user migrate ada --to-isolated=standard
 ```
 
-Mutating commands are a dry run until you pass `--apply`: they print the request and the Admin API checks it without changing anything. Run `octogee-fleet help` for the command list.
+Mutating commands are a dry run until you pass `--apply`: they print the request and the Admin API checks it without changing anything. An applied change prints what it did and the operation id to follow it with `octogee-fleet ops inspect`.
+
+Run `octogee-fleet help` for the command list, `octogee-fleet help <command>` or `<command> --help` for a command's flags and examples. A mistyped command or flag gets a suggestion.
+
+### Output
+
+At a terminal, output is coloured, with `✓`, `⚠` and `●` marks and times such as `3m ago`. Piped output is plain text with the same columns. Set `NO_COLOR` or pass `--no-color` to drop the colour; set `FORCE_COLOR` or `CLICOLOR_FORCE` to keep it when piping.
+
+Every command that prints data takes `--format=json`. Reads print the Admin API's response, with absolute times. A mutation prints its request with the dry run's plans, or with the Admin API's response once applied. JSON is never coloured, and warnings go to stderr.
+
+### Shell completion
+
+```bash
+octogee-fleet completion zsh > "${fpath[1]}/_octogee-fleet"
+octogee-fleet completion bash > ~/.local/share/bash-completion/completions/octogee-fleet
+octogee-fleet completion fish > ~/.config/fish/completions/octogee-fleet.fish
+```
 
 ## Documentation
 
