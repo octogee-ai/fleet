@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -71,18 +72,40 @@ func limitedQuery(i *invocation, filter string) (url.Values, error) {
 	return query, nil
 }
 
+// operationView is an operation or an audit from the journal.
+type operationView struct {
+	ID          string         `json:"id"`
+	Kind        string         `json:"kind"`
+	What        string         `json:"what"`
+	Status      string         `json:"status"`
+	CreatedBy   string         `json:"createdBy"`
+	CreatedAt   instant        `json:"createdAt"`
+	CompletedAt instant        `json:"completedAt"`
+	GatewayID   string         `json:"gatewayId"`
+	Target      map[string]any `json:"target"`
+	Error       any            `json:"error"`
+	Steps       []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Error  any    `json:"error"`
+	} `json:"steps"`
+}
+
+// label is the operation's kind, or what an audit without a kind did.
+func (o operationView) label() string {
+	if o.Kind != "" {
+		return o.Kind
+	}
+	return dash(o.What)
+}
+
 func opsList(i *invocation) error {
 	query, err := limitedQuery(i, "status")
 	if err != nil {
 		return err
 	}
 	var response struct {
-		Operations []struct {
-			ID        string `json:"id"`
-			Kind      string `json:"kind"`
-			Status    string `json:"status"`
-			CreatedBy string `json:"createdBy"`
-		} `json:"operations"`
+		Operations []operationView `json:"operations"`
 	}
 	raw, err := i.read(admin.Path("operations"), query, &response)
 	if err != nil {
@@ -93,9 +116,11 @@ func opsList(i *invocation) error {
 	}
 	rows := make([][]string, 0, len(response.Operations))
 	for _, operation := range response.Operations {
-		rows = append(rows, []string{i.style.bold(operation.ID), dash(operation.Kind), i.style.state(operation.Status), dash(operation.CreatedBy)})
+		rows = append(rows, []string{
+			i.style.bold(operation.ID), operation.label(), i.style.state(operation.Status), dash(operation.CreatedBy), i.ago(operation.CreatedAt),
+		})
 	}
-	i.table([]string{"id", "kind", "status", "by"}, rows, "no operations")
+	i.table([]string{"id", "kind", "status", "by", "created"}, rows, "no operations")
 	return nil
 }
 
@@ -104,7 +129,13 @@ func buildsList(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	var response map[string]any
+	var response struct {
+		Builds []struct {
+			Tag      string  `json:"tag"`
+			PushedAt instant `json:"pushedAt"`
+			Digest   string  `json:"digest"`
+		} `json:"builds"`
+	}
 	raw, err := i.read(admin.Path("builds"), query, &response)
 	if err != nil {
 		return err
@@ -112,12 +143,26 @@ func buildsList(i *invocation) error {
 	if i.json {
 		return i.printJSON(raw)
 	}
-	return i.printJSON(response["builds"])
+	rows := make([][]string, 0, len(response.Builds))
+	for _, build := range response.Builds {
+		rows = append(rows, []string{i.style.bold(dash(build.Tag)), i.ago(build.PushedAt), i.style.dim(shortDigest(build.Digest))})
+	}
+	i.table([]string{"tag", "pushed", "digest"}, rows, "no builds")
+	return nil
+}
+
+// shortDigest keeps an image digest's algorithm and its first 12 hex digits.
+func shortDigest(digest string) string {
+	algorithm, hex, found := strings.Cut(digest, ":")
+	if !found {
+		return dash(shortSHA(digest))
+	}
+	return algorithm + ":" + shortSHA(hex)
 }
 
 func opsInspect(i *invocation) error {
 	var response struct {
-		Operation map[string]any `json:"operation"`
+		Operation operationView `json:"operation"`
 	}
 	raw, err := i.read(admin.Path("operations", i.args[0]), nil, &response)
 	if err != nil {
@@ -126,7 +171,39 @@ func opsInspect(i *invocation) error {
 	if i.json {
 		return i.printJSON(raw)
 	}
-	return i.printJSON(response.Operation)
+	operation := response.Operation
+	i.line(i.style.bold(operation.ID) + "  " + operation.label())
+	what := ""
+	if operation.Kind != "" {
+		what = operation.What
+	}
+	failure := ""
+	if operation.Error != nil {
+		failure = i.style.red(fieldText(operation.Error))
+	}
+	i.fields([]field{
+		{"status", i.style.dot(operation.Status)},
+		{"what", what},
+		{"by", operation.CreatedBy},
+		{"created", i.stamp(operation.CreatedAt)},
+		{"completed", i.stamp(operation.CompletedAt)},
+		{"gateway", operation.GatewayID},
+		{"target", fieldList(operation.Target)},
+		{"error", failure},
+	})
+	if len(operation.Steps) > 0 {
+		i.line("")
+		rows := make([][]string, 0, len(operation.Steps))
+		for _, step := range operation.Steps {
+			problem := ""
+			if step.Error != nil {
+				problem = i.style.red(fieldText(step.Error))
+			}
+			rows = append(rows, []string{step.Name, i.style.state(step.Status), problem})
+		}
+		i.table([]string{"step", "status", "error"}, rows, "")
+	}
+	return nil
 }
 
 func releaseStatus(i *invocation) error {

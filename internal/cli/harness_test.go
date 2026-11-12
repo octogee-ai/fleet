@@ -309,16 +309,28 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 	case path == "placement":
 		writeJSON(w, http.StatusOK, s.placement())
 	case path == "operations":
-		writeJSON(w, http.StatusOK, map[string]any{"operations": []map[string]any{{"id": "op-1", "kind": "deploy", "status": "running"}}})
+		writeJSON(w, http.StatusOK, map[string]any{"operations": []map[string]any{
+			{"id": "op-1", "kind": "deploy", "status": "running", "createdBy": "operator@example.test", "createdAt": minutesAgo(3)},
+			{"id": "audit-1", "recordType": "audit", "what": "update gateway desired configuration", "status": "completed", "createdBy": "operator@example.test", "createdAt": minutesAgo(4)},
+		}})
 	case path == "operations/op-1":
 		writeJSON(w, http.StatusOK, map[string]any{"operation": map[string]any{
-			"id":     "op-1",
-			"kind":   "migrate-customer",
-			"status": "failed",
-			"steps":  []map[string]any{{"name": "quiesce-source", "status": "failed", "error": "source drain timed out"}},
+			"id":        "op-1",
+			"kind":      "migrate-customer",
+			"status":    "failed",
+			"createdBy": "operator@example.test",
+			"createdAt": minutesAgo(3),
+			"gatewayId": "shared-b",
+			"error":     "migration failed at quiesce-source",
+			"steps": []map[string]any{
+				{"name": "reserve-target", "status": "completed"},
+				{"name": "quiesce-source", "status": "failed", "error": "source drain timed out"},
+			},
 		}})
 	case path == "builds":
-		writeJSON(w, http.StatusOK, map[string]any{"builds": []map[string]any{{"tag": "v42"}}})
+		writeJSON(w, http.StatusOK, map[string]any{"service": "gateway", "generatedAt": "2026-11-10T00:05:00Z", "builds": []map[string]any{
+			{"tag": "v42", "pushedAt": "2026-11-09T22:05:00Z", "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+		}})
 	case path == "release-status":
 		writeJSON(w, http.StatusOK, map[string]any{"summary": map[string]any{"status": "converged", "converged": 1, "serving": 1}, "gateways": []map[string]any{{"gatewayId": "shared-a", "desiredRelease": 3, "liveRelease": 3, "observation": "converged"}}})
 	case path == "logs":
@@ -332,6 +344,10 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no route: " + path})
 	}
+}
+
+func minutesAgo(minutes int) int64 {
+	return fixedNow.Add(-time.Duration(minutes) * time.Minute).UnixMilli()
 }
 
 func (s *adminStub) gatewaySummaries() []map[string]any {

@@ -152,7 +152,7 @@ func alignRow(cells []string, widths []int) string {
 			row.WriteString(strings.Repeat(" ", widths[index]-visibleWidth(cell)))
 		}
 	}
-	return row.String()
+	return strings.TrimRight(row.String(), " ")
 }
 
 type field struct {
@@ -217,6 +217,14 @@ func (u ui) ago(t instant) string {
 		return dash(t.raw)
 	}
 	return relative(t.at, u.now())
+}
+
+// stamp is an absolute time with how long ago it was, for a detail view.
+func (u ui) stamp(t instant) string {
+	if t.at.IsZero() {
+		return t.raw
+	}
+	return t.at.UTC().Format("2006-01-02 15:04:05 UTC") + " " + u.style.dim("("+relative(t.at, u.now())+")")
 }
 
 func relative(at, now time.Time) string {

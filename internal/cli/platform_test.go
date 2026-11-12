@@ -2,6 +2,7 @@ package cli
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,37 @@ func TestOpsInspectShowsStepsAndFailureReason(t *testing.T) {
 	expectContains(t, run.stdout, "source drain timed out")
 }
 
+func lineWith(t *testing.T, text, want string) string {
+	t.Helper()
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, want) {
+			return line
+		}
+	}
+	t.Fatalf("no line contains %q:\n%s", want, text)
+	return ""
+}
+
+func TestOpsListNamesAnAuditWithoutAKindByWhatItDid(t *testing.T) {
+	run := fleet(t, "ops", "ls")
+	expectContains(t, lineWith(t, run.stdout, "audit-1"), "update gateway desired configuration")
+}
+
+func TestOpsListSaysHowLongAgoEachOperationStarted(t *testing.T) {
+	run := fleet(t, "ops", "ls")
+	expectContains(t, lineWith(t, run.stdout, "op-1"), "3m ago")
+}
+
+func TestOpsInspectShowsTheOperationAsFields(t *testing.T) {
+	run := fleet(t, "ops", "inspect", "op-1")
+	if strings.HasPrefix(strings.TrimSpace(run.stdout), "{") {
+		t.Fatalf("expected fields, not JSON:\n%s", run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "error"), "migration failed at quiesce-source")
+	expectContains(t, lineWith(t, run.stdout, "created"), "2026-11-10 00:02:00 UTC")
+	expectContains(t, lineWith(t, run.stdout, "reserve-target"), "completed")
+}
+
 func TestOpsInspectReportsAnUnknownOperation(t *testing.T) {
 	run := fleet(t, "ops", "inspect", "op-missing")
 	if run.exit == 0 {
@@ -37,6 +69,17 @@ func TestBuildsListFiltersByServiceAndLimit(t *testing.T) {
 	expectRead(t, run)
 	if !run.containsRequest(adminRequest{Method: http.MethodGet, Path: "/api/admin/builds", Query: map[string]string{"service": "gateway", "limit": "5"}}) {
 		t.Fatalf("requests %+v", run.requests)
+	}
+}
+
+func TestBuildsListIsATable(t *testing.T) {
+	run := fleet(t, "builds", "ls")
+	expectContains(t, run.stdout, "TAG")
+	row := lineWith(t, run.stdout, "v42")
+	expectContains(t, row, "2h ago")
+	expectContains(t, row, "sha256:0123456789ab")
+	if strings.Contains(row, "0123456789abcdef0123") {
+		t.Fatalf("expected a short digest:\n%s", row)
 	}
 }
 
