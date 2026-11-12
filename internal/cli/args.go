@@ -16,6 +16,40 @@ const (
 
 type flagSet map[string]flagKind
 
+// flagSpec declares one flag: how it parses and how help describes it.
+type flagSpec struct {
+	name  string
+	kind  flagKind
+	value string
+	help  string
+}
+
+func bare(name, help string) flagSpec { return flagSpec{name: name, kind: bareFlag, help: help} }
+
+func valued(name, value, help string) flagSpec {
+	return flagSpec{name: name, kind: valueFlag, value: value, help: help}
+}
+
+func (f flagSpec) label() string {
+	if f.kind == bareFlag {
+		return "--" + f.name
+	}
+	return "--" + f.name + "=" + f.value
+}
+
+var (
+	globalFlagSpecs = []flagSpec{
+		valued("env", "<name>", "The environment to act on, from your configuration. Required."),
+		bare("no-color", "Print without colour. Setting NO_COLOR does the same."),
+		bare("help", "Show help for a command. -h does the same."),
+	}
+	mutatingFlagSpecs = []flagSpec{
+		bare("apply", "Send the change. Without it, the Admin API only checks the change."),
+		bare("offline", "Print the request without asking the Admin API to check it."),
+		valued("idempotency-key", "<key>", "Send this Idempotency-Key, so a retry changes nothing twice."),
+	}
+)
+
 type parsedFlag struct {
 	value    string
 	hasValue bool
@@ -53,22 +87,21 @@ func parseArgs(argv []string) (parsedArgs, error) {
 	return parsed, nil
 }
 
-// globalFlags are accepted by every command.
-var globalFlags = flagSet{"env": valueFlag, "no-color": bareFlag}
+// flagSpecs are the command's own flags, then the flags every mutation takes.
+func (c *command) flagSpecs() []flagSpec {
+	specs := append([]flagSpec{}, c.flags...)
+	if c.mutating {
+		specs = append(specs, mutatingFlagSpecs...)
+	}
+	return specs
+}
 
 func (c *command) acceptedFlags() flagSet {
 	accepted := flagSet{}
-	for name, kind := range globalFlags {
-		accepted[name] = kind
+	for _, spec := range append(c.flagSpecs(), globalFlagSpecs...) {
+		accepted[spec.name] = spec.kind
 	}
-	for name, kind := range c.flags {
-		accepted[name] = kind
-	}
-	if c.mutating {
-		accepted["apply"] = bareFlag
-		accepted["offline"] = bareFlag
-		accepted["idempotency-key"] = valueFlag
-	}
+	delete(accepted, "help")
 	return accepted
 }
 
@@ -101,7 +134,10 @@ func (c *command) validate(parsed parsedArgs, args []string) error {
 func checkFlag(c *command, name string, flag parsedFlag, accepted flagSet) error {
 	kind, ok := accepted[name]
 	if !ok {
-		return fmt.Errorf("%s does not accept --%s", c.name(), name)
+		if suggestion := suggestFlag(name, accepted); suggestion != "" {
+			return fmt.Errorf("%s does not accept --%s\ndid you mean --%s?", c.name(), name, suggestion)
+		}
+		return fmt.Errorf("%s does not accept --%s\nrun `octogee-fleet help %s` for its flags", c.name(), name, c.name())
 	}
 	if kind == bareFlag && flag.hasValue {
 		return fmt.Errorf("--%s takes no value", name)

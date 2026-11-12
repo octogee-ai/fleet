@@ -12,16 +12,71 @@ import (
 const provisioningComplete = "complete"
 
 var userCommands = []*command{
-	{path: words("user ls"), usage: "[--gateway=<gateway>]", summary: "List users and their placement, and report drift in both directions.", flags: flagSet{"gateway": valueFlag}, run: userList},
-	{path: words("user inspect"), usage: "<user>", argc: 1, summary: "Show the full diagnostic for one user.", run: userInspect},
-	{path: words("user add"), usage: "<name> --email=<address>", argc: 1, summary: "Create and admit a user.", flags: flagSet{"email": valueFlag}, required: []string{"email"}, mutating: true, run: userAdd},
-	{path: words("user issue-passwords"), usage: "<user>", argc: 1, summary: "Set new chat and git passwords and print them once.", mutating: true, run: userIssuePasswords},
-	{path: words("user assign"), usage: "<user> --to=<gateway>", argc: 1, summary: "Place a user who has no gateway.", flags: flagSet{"to": valueFlag}, required: []string{"to"}, mutating: true, run: userAssign},
-	{path: words("user migrate"), usage: "<user> (--to=<gateway> [--source-transfer=retained-pod] | --to-isolated=<sizing profile>)", argc: 1, summary: "Move a placed user to another gateway, or to a new isolated gateway of a sizing profile.", flags: flagSet{"to": valueFlag, "source-transfer": valueFlag, "to-isolated": valueFlag}, mutating: true, run: userMigrate},
-	{path: words("user unassign"), usage: "<user>", argc: 1, summary: "Remove a user's placement.", mutating: true, run: userAction("unassign", nil)},
-	{path: words("user replace-vm"), usage: "<user> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace the VM of the user's isolated gateway.", flags: flagSet{"force": bareFlag, "accept-boot-data-loss": bareFlag}, mutating: true, run: userReplaceVM},
-	{path: words("user delete"), usage: "<user> [--erase-now]", argc: 1, summary: "Schedule a user's deletion; --erase-now erases at once.", flags: flagSet{"erase-now": bareFlag}, mutating: true, run: userDelete},
-	{path: words("user broker"), usage: "<user>", argc: 1, summary: "Show the user's model broker diagnostics.", run: userBroker},
+	{
+		path: words("user ls"), usage: "[--gateway=<gateway>]", summary: "List users and their placement, and report drift in both directions.",
+		flags:    []flagSpec{valued("gateway", "<gateway>", "Only users placed on or mounted on this gateway.")},
+		examples: []string{"", "--gateway=shared-a"},
+		run:      userList,
+	},
+	{
+		path: words("user inspect"), usage: "<user>", argc: 1, summary: "Show the full diagnostic for one user.",
+		examples: []string{"ada"},
+		run:      userInspect,
+	},
+	{
+		path: words("user add"), usage: "<name> --email=<address>", argc: 1, summary: "Create and admit a user.",
+		flags:    []flagSpec{valued("email", "<address>", "The user's email address.")},
+		required: []string{"email"}, mutating: true,
+		examples: []string{"lin --email=lin@example.com", "lin --email=lin@example.com --apply"},
+		run:      userAdd,
+	},
+	{
+		path: words("user issue-passwords"), usage: "<user>", argc: 1, summary: "Set new chat and git passwords and print them once.", mutating: true,
+		examples: []string{"lin --apply"},
+		run:      userIssuePasswords,
+	},
+	{
+		path: words("user assign"), usage: "<user> --to=<gateway>", argc: 1, summary: "Place a user who has no gateway.",
+		flags:    []flagSpec{valued("to", "<gateway>", "The gateway to place the user on.")},
+		required: []string{"to"}, mutating: true,
+		examples: []string{"lin --to=shared-a", "lin --to=shared-a --apply"},
+		run:      userAssign,
+	},
+	{
+		path: words("user migrate"), usage: "<user> (--to=<gateway> [--source-transfer=retained-pod] | --to-isolated=<sizing profile>)", argc: 1, summary: "Move a placed user to another gateway, or to a new isolated gateway.",
+		flags: []flagSpec{
+			valued("to", "<gateway>", "The gateway to move the user to."),
+			valued("source-transfer", "retained-pod", "Carry the user's state over from their retained pod."),
+			valued("to-isolated", "<sizing profile>", "Create an isolated gateway of this sizing profile and move the user to it."),
+		},
+		mutating: true,
+		examples: []string{"ada --to=shared-b", "ada --to-isolated=standard --apply"},
+		run:      userMigrate,
+	},
+	{
+		path: words("user unassign"), usage: "<user>", argc: 1, summary: "Remove a user's placement.", mutating: true,
+		examples: []string{"ada"},
+		run:      userAction("unassign", nil),
+	},
+	{
+		path: words("user replace-vm"), usage: "<user> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace the VM of the user's isolated gateway.",
+		flags:    breakGlassFlags,
+		mutating: true,
+		examples: []string{"ada"},
+		run:      userReplaceVM,
+	},
+	{
+		path: words("user delete"), usage: "<user> [--erase-now]", argc: 1, summary: "Schedule a user's deletion; --erase-now erases at once.",
+		flags:    []flagSpec{bare("erase-now", "Erase the user at once instead of after the waiting period.")},
+		mutating: true,
+		examples: []string{"lin", "lin --erase-now --apply"},
+		run:      userDelete,
+	},
+	{
+		path: words("user broker"), usage: "<user>", argc: 1, summary: "Show the user's model broker diagnostics.",
+		examples: []string{"ada"},
+		run:      userBroker,
+	},
 }
 
 func userList(i *invocation) error {

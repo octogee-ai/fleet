@@ -10,17 +10,83 @@ import (
 )
 
 var gatewayCommands = []*command{
-	{path: words("gateway ls"), usage: "[--all]", summary: "List gateways with status, version, mounted users and last heartbeat.", flags: flagSet{"all": bareFlag}, run: gatewayList},
-	{path: words("gateway inspect"), usage: "<gateway>", argc: 1, summary: "Show the full diagnostic for one gateway.", run: gatewayInspect},
-	{path: words("gateway add"), usage: "--id=<id> [--sha=<full-sha>]", summary: "Add a shared gateway on an existing immutable build, or on the platform's running build.", flags: flagSet{"id": valueFlag, "sha": valueFlag}, required: []string{"id"}, mutating: true, run: gatewayAdd},
-	{path: words("gateway deploy"), usage: "<gateway> --sha=<full-sha>", argc: 1, summary: "Deploy an existing immutable build to one gateway.", flags: flagSet{"sha": valueFlag}, required: []string{"sha"}, mutating: true, run: gatewayDeploy},
-	{path: words("gateway restart"), usage: "<gateway>", argc: 1, summary: "Restart a gateway.", mutating: true, run: gatewayRestart},
-	{path: words("gateway park"), usage: "<gateway>", argc: 1, summary: "Pause a gateway.", mutating: true, run: gatewayDesiredStatus(statusPaused)},
-	{path: words("gateway resume"), usage: "<gateway>", argc: 1, summary: "Resume a parked gateway.", mutating: true, run: gatewayDesiredStatus(statusRunning)},
-	{path: words("gateway retire"), usage: "<gateway> [--retain-data] [--retain-service-account]", argc: 1, summary: "Retire an empty gateway.", flags: flagSet{"retain-data": bareFlag, "retain-service-account": bareFlag}, mutating: true, run: gatewayRetire},
-	{path: words("gateway releases"), usage: "<gateway>", argc: 1, summary: "List a gateway's releases.", run: gatewayReleases},
-	{path: words("gateway rollback"), usage: "<gateway> --release=<n>", argc: 1, summary: "Roll a gateway back to an earlier release.", flags: flagSet{"release": valueFlag}, required: []string{"release"}, mutating: true, run: gatewayRollback},
-	{path: words("gateway replace-vm"), usage: "<gateway> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace an isolated gateway's VM, keeping the verified home disk.", flags: flagSet{"force": bareFlag, "accept-boot-data-loss": bareFlag}, mutating: true, run: gatewayReplaceVM},
+	{
+		path: words("gateway ls"), usage: "[--all]", summary: "List gateways with their state, build, mounted users and last heartbeat.",
+		flags:    []flagSpec{bare("all", "Include retired gateways.")},
+		examples: []string{"", "--all"},
+		run:      gatewayList,
+	},
+	{
+		path: words("gateway inspect"), usage: "<gateway>", argc: 1, summary: "Show the full diagnostic for one gateway.",
+		examples: []string{"shared-a"},
+		run:      gatewayInspect,
+	},
+	{
+		path: words("gateway add"), usage: "--id=<id> [--sha=<full-sha>]", summary: "Add a shared gateway on an immutable build, or on the platform's build.",
+		flags: []flagSpec{
+			valued("id", "<id>", "The new gateway's id: lowercase letters, digits and hyphens."),
+			valued("sha", "<full-sha>", "The build to run, as a full commit sha. Omit it for the platform's build."),
+		},
+		required: []string{"id"}, mutating: true,
+		examples: []string{"--id=shared-c --sha=<full-sha>", "--id=shared-c --sha=<full-sha> --apply"},
+		run:      gatewayAdd,
+	},
+	{
+		path: words("gateway deploy"), usage: "<gateway> --sha=<full-sha>", argc: 1, summary: "Deploy an existing immutable build to one gateway.",
+		flags:    []flagSpec{valued("sha", "<full-sha>", "The build to deploy, as a full commit sha.")},
+		required: []string{"sha"}, mutating: true,
+		examples: []string{"iso-ada --sha=<full-sha>"},
+		run:      gatewayDeploy,
+	},
+	{
+		path: words("gateway restart"), usage: "<gateway>", argc: 1, summary: "Restart a gateway.", mutating: true,
+		examples: []string{"shared-a", "shared-a --apply"},
+		run:      gatewayRestart,
+	},
+	{
+		path: words("gateway park"), usage: "<gateway>", argc: 1, summary: "Pause a gateway.", mutating: true,
+		examples: []string{"shared-b", "shared-b --apply"},
+		run:      gatewayDesiredStatus(statusPaused),
+	},
+	{
+		path: words("gateway resume"), usage: "<gateway>", argc: 1, summary: "Resume a parked gateway.", mutating: true,
+		examples: []string{"shared-b --apply"},
+		run:      gatewayDesiredStatus(statusRunning),
+	},
+	{
+		path: words("gateway retire"), usage: "<gateway> [--retain-data] [--retain-service-account]", argc: 1, summary: "Retire an empty gateway.",
+		flags: []flagSpec{
+			bare("retain-data", "Keep the gateway's data instead of deleting it."),
+			bare("retain-service-account", "Keep the gateway's service account."),
+		},
+		mutating: true,
+		examples: []string{"shared-b", "shared-b --retain-data --apply"},
+		run:      gatewayRetire,
+	},
+	{
+		path: words("gateway releases"), usage: "<gateway>", argc: 1, summary: "List a gateway's releases.",
+		examples: []string{"iso-ada"},
+		run:      gatewayReleases,
+	},
+	{
+		path: words("gateway rollback"), usage: "<gateway> --release=<n>", argc: 1, summary: "Roll a gateway back to an earlier release.",
+		flags:    []flagSpec{valued("release", "<n>", "The release to return to, from gateway releases.")},
+		required: []string{"release"}, mutating: true,
+		examples: []string{"iso-ada --release=3"},
+		run:      gatewayRollback,
+	},
+	{
+		path: words("gateway replace-vm"), usage: "<gateway> [--force --accept-boot-data-loss]", argc: 1, summary: "Replace an isolated gateway's VM, keeping the verified home disk.",
+		flags:    breakGlassFlags,
+		mutating: true,
+		examples: []string{"iso-ada", "iso-ada --force --accept-boot-data-loss --apply"},
+		run:      gatewayReplaceVM,
+	},
+}
+
+var breakGlassFlags = []flagSpec{
+	bare("force", "Replace even if boot-disk data may be lost. Needs --accept-boot-data-loss."),
+	bare("accept-boot-data-loss", "Accept that data on the boot disk may be lost. Needs --force."),
 }
 
 func gatewayList(i *invocation) error {

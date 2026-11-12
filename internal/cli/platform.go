@@ -11,11 +11,49 @@ import (
 )
 
 var platformCommands = []*command{
-	{path: words("ops ls"), usage: "[--status=<status>] [--limit=<n>]", summary: "List operations from the journal.", flags: flagSet{"status": valueFlag, "limit": valueFlag}, run: opsList},
-	{path: words("ops inspect"), usage: "<operation>", argc: 1, summary: "Show one operation's steps and outcome.", run: opsInspect},
-	{path: words("builds ls"), usage: "[--service=<service>] [--limit=<n>]", summary: "List builds.", flags: flagSet{"service": valueFlag, "limit": valueFlag}, run: buildsList},
-	{path: words("release status"), summary: "Show release convergence across the fleet.", run: releaseStatus},
-	{path: words("logs"), usage: "[--level=<level>] [--service=<names>] [--user=<names>] [--migration=<id>] [--gateway=<gateway>] [--since=<age>] [--no-follow] [--format=text|json]", summary: "Tail shared-gateway and VM-gateway logs together.", flags: flagSet{"level": valueFlag, "service": valueFlag, "user": valueFlag, "migration": valueFlag, "gateway": valueFlag, "since": valueFlag, "no-follow": bareFlag, "format": valueFlag}, run: logs},
+	{
+		path: words("ops ls"), usage: "[--status=<status>] [--limit=<n>]", summary: "List operations from the journal.",
+		flags: []flagSpec{
+			valued("status", "<status>", "Only operations with this status, such as failed, or unresolved."),
+			valued("limit", "<n>", "List at most n operations."),
+		},
+		examples: []string{"", "--status=failed --limit=10"},
+		run:      opsList,
+	},
+	{
+		path: words("ops inspect"), usage: "<operation>", argc: 1, summary: "Show one operation's steps and outcome.",
+		examples: []string{"<operation>"},
+		run:      opsInspect,
+	},
+	{
+		path: words("builds ls"), usage: "[--service=<service>] [--limit=<n>]", summary: "List builds.",
+		flags: []flagSpec{
+			valued("service", "<service>", "The image whose builds to list; the Admin API names the ones it accepts."),
+			valued("limit", "<n>", "List at most n builds."),
+		},
+		examples: []string{"", "--limit=5"},
+		run:      buildsList,
+	},
+	{
+		path: words("release status"), summary: "Show release convergence across the fleet.",
+		examples: []string{""},
+		run:      releaseStatus,
+	},
+	{
+		path: words("logs"), usage: "[--level=<level>] [--service=<names>] [--user=<names>] [--migration=<id>] [--gateway=<gateway>] [--since=<age>] [--no-follow] [--format=text|json]", summary: "Tail shared-gateway and VM-gateway logs together.",
+		flags: []flagSpec{
+			valued("level", "<level>", "The lowest severity to show, such as warn or error."),
+			valued("service", "<names>", "Only these services, separated by commas."),
+			valued("user", "<names>", "Only these users, separated by commas."),
+			valued("migration", "<id>", "Only this migration."),
+			valued("gateway", "<gateway>", "Only this gateway."),
+			valued("since", "<age>", "How far back to read, such as 30m or 2h. Needs --no-follow."),
+			bare("no-follow", "Print what is there and stop, instead of following new lines."),
+			valued("format", "text|json", "Print lines for people, or the Admin API's JSON lines."),
+		},
+		examples: []string{"--gateway=shared-a --level=warn", "--no-follow --since=30m --user=ada"},
+		run:      logs,
+	},
 }
 
 func limitedQuery(i *invocation, filter string) (url.Values, error) {

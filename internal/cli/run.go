@@ -76,8 +76,12 @@ func run(ctx context.Context, argv []string, runtime Runtime) error {
 		return help(out, parsed.positional[1:])
 	}
 	cmd, args := lookup(parsed.positional)
+	if cmd == nil && len(parsed.positional) == 1 && isNoun(parsed.positional[0]) {
+		writeGroupHelp(out, canonical(parsed.positional)[0])
+		return nil
+	}
 	if cmd == nil {
-		return fmt.Errorf("unknown command %q; run `octogee-fleet help`", strings.Join(parsed.positional, " "))
+		return unknownCommand(parsed.positional)
 	}
 	if parsed.has("help") {
 		writeCommandHelp(out, cmd)

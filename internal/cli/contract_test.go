@@ -193,7 +193,7 @@ func TestHelpPrintsTheCommandList(t *testing.T) {
 	if run.exit != 0 {
 		t.Fatalf("exit %d", run.exit)
 	}
-	expectContains(t, run.stdout, "usage: octogee-fleet --env=<name>")
+	expectContains(t, run.stdout, "octogee-fleet --env=<name> <command>")
 	expectContains(t, run.stdout, "gateway")
 	expectContains(t, run.stdout, "user")
 }

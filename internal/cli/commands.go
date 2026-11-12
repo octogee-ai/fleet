@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 	"github.com/octogee-ai/octogee-fleet/internal/config"
@@ -22,9 +21,10 @@ type command struct {
 	usage    string
 	summary  string
 	argc     int
-	flags    flagSet
+	flags    []flagSpec
 	required []string
 	mutating bool
+	examples []string
 	run      func(*invocation) error
 }
 
@@ -44,17 +44,14 @@ func (c *command) synopsis() string {
 func words(text string) []string { return strings.Fields(text) }
 
 func allCommands() []*command {
-	commands := append([]*command{}, authCommands...)
-	commands = append(commands, gatewayCommands...)
+	commands := append([]*command{}, gatewayCommands...)
 	commands = append(commands, userCommands...)
-	return append(commands, platformCommands...)
+	commands = append(commands, platformCommands...)
+	return append(commands, authCommands...)
 }
 
 func lookup(positional []string) (*command, []string) {
-	path := append([]string{}, positional...)
-	if path[0] == "gw" {
-		path[0] = "gateway"
-	}
+	path := canonical(positional)
 	var best *command
 	for _, candidate := range allCommands() {
 		if hasPrefix(path, candidate.path) && (best == nil || len(candidate.path) > len(best.path)) {
@@ -77,42 +74,6 @@ func hasPrefix(path, prefix []string) bool {
 		}
 	}
 	return true
-}
-
-func help(out ui, target []string) error {
-	if len(target) == 0 {
-		writeHelp(out)
-		return nil
-	}
-	cmd, args := lookup(target)
-	if cmd == nil || len(args) != 0 {
-		return fmt.Errorf("unknown command %q; run `octogee-fleet help`", strings.Join(target, " "))
-	}
-	writeCommandHelp(out, cmd)
-	return nil
-}
-
-func writeHelp(u ui) {
-	out := u.out
-	fmt.Fprintln(out, "octogee-fleet: operate a fleet of OpenClaw gateways through the Admin API")
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "usage: octogee-fleet --env=<name> <command> [arguments]")
-	fmt.Fprintln(out, "Mutating commands are a dry run until --apply: the Admin API checks the request and")
-	fmt.Fprintln(out, "changes nothing. --offline prints the request without that check. `gw` is short for `gateway`.")
-	fmt.Fprintln(out)
-	table := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	for _, cmd := range allCommands() {
-		fmt.Fprintf(table, "  %s\t%s\n", cmd.name(), cmd.summary)
-	}
-	table.Flush()
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Run `octogee-fleet help <command>` for one command's arguments.")
-}
-
-func writeCommandHelp(u ui, cmd *command) {
-	fmt.Fprintln(u.out, cmd.summary)
-	fmt.Fprintln(u.out)
-	fmt.Fprintf(u.out, "usage: octogee-fleet --env=<name> %s\n", cmd.synopsis())
 }
 
 type invocation struct {

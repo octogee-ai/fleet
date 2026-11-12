@@ -10,8 +10,8 @@ import (
 )
 
 var authCommands = []*command{
-	{path: words("login"), summary: "Sign in to the environment's OIDC issuer.", run: login},
-	{path: words("logout"), summary: "Forget this environment's sign-in.", run: logout},
+	{path: words("login"), summary: "Sign in to the environment's OIDC issuer.", examples: []string{""}, run: login},
+	{path: words("logout"), summary: "Forget this environment's sign-in.", examples: []string{""}, run: logout},
 }
 
 func sessionStore(runtime Runtime) (oidc.Store, error) {
