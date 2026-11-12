@@ -457,8 +457,7 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 	defer issuerServer.Close()
 	issuer.url = issuerServer.URL
 	settings := map[string]any{
-		"adminApiOrigin":  server.URL,
-		"imageRepository": "registry.example/gateway",
+		"adminApiOrigin": server.URL,
 	}
 	if options.tokenCommand != nil {
 		settings["tokenCommand"] = options.tokenCommand

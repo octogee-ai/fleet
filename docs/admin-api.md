@@ -60,6 +60,18 @@ A dry run does not predict checks made while a change is applied, an idempotency
 
 `gatewayClass` is `shared` or `isolated`. An isolated gateway names its `ownerId`.
 
+## `POST /gateways`
+
+Takes `{"gatewayId": "shared-<lowercase letters or digits>", "sourceSha": "<full commit sha>"}`. `sourceSha` is optional; without it the gateway runs the build the platform is running. A body carrying `imageRepository` or `imageTag` returns `400`. Returns `202`:
+
+```json
+{ "gatewayId": "shared-c", "sourceSha": "<full commit sha>", "release": 1, "imageTag": "<tag>", "gatewayEdgeImageTag": "<tag>", "operationId": "<id>" }
+```
+
+`sourceSha` is `null` when the request named none. A dry run answers with one plan whose `mutation` has kind `add-gateway` and carries `gatewayId`, `build` (`{"sourceSha", "manifestDigest"}` or `"platform"`), `imageTag` and `gatewayEdgeImageTag`. Refusals are the same on a dry run and when applied. `400` means a malformed `sourceSha`, a gateway id the platform refuses, or no `sourceSha` while the platform's running build is unknown. `404` means no build manifest exists for `sourceSha`. `409` means the id is in use or the build's manifest does not match. `503` means build manifests are unavailable.
+
+A shared gateway added this way belongs to the operator: no automation replaces, drains or retires it, and it stays on its build. `POST /gateways/<gateway>/deploy` and `POST /gateways/<gateway>/releases/<n>/rollback` on a shared gateway return `409`.
+
 ## `GET /placement`
 
 ```json

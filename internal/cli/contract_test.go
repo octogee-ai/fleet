@@ -14,6 +14,8 @@ var dryRun = regexp.MustCompile(`(?i)dry run`)
 var mutatingCommands = [][]string{
 	{"gateway", "deploy", "shared-a", "--sha=" + sha},
 	{"gateway", "park", "shared-a"},
+	{"gateway", "add", "--id=shared-c"},
+	{"gateway", "add", "--id=shared-c", "--sha=" + sha},
 	{"user", "assign", "alan", "--to=shared-b"},
 	{"user", "migrate", "ada", "--to=shared-b"},
 	{"user", "add", "lin", "--email=lin@example.com"},
