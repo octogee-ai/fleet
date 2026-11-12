@@ -148,11 +148,11 @@ func userInspect(i *invocation) error {
 	}
 	i.line(i.style.bold(user.Name) + "  " + i.style.dim(user.ID))
 	target := ""
-	if user.TargetGatewayID != user.AssignedGatewayID {
-		target = dash(user.TargetGatewayID)
+	if string(user.TargetGatewayID) != user.AssignedGatewayID {
+		target = dash(string(user.TargetGatewayID))
 	}
 	userFields := []field{
-		{"email", user.Email},
+		{"email", string(user.Email)},
 		{"gateway", dash(user.AssignedGatewayID)},
 		{"placement target", target},
 		{"mounted on", dash(user.MountedGatewayID)},
@@ -167,8 +167,10 @@ func userInspect(i *invocation) error {
 		}
 		userFields = append(userFields, field{"isolated gateway", fmt.Sprintf("%s %s, VM %s", i.style.bold(gateway.GatewayID), i.style.state(gateway.DesiredStatus), vm)})
 	}
-	if operation := user.LatestOperation; operation != nil {
-		userFields = append(userFields, field{"latest operation", fmt.Sprintf("%s %s %s", i.style.bold(operation.ID), operation.Kind, i.style.state(operation.Status))})
+	if text := user.LatestOperation.unreadable(); text != "" {
+		userFields = append(userFields, field{"latest operation", text})
+	} else if operation := user.LatestOperation.value; operation != nil {
+		userFields = append(userFields, field{"latest operation", fmt.Sprintf("%s %s %s", i.style.bold(string(operation.ID)), operation.Kind, i.style.state(string(operation.Status)))})
 	}
 	i.fields(userFields)
 	if line := user.drift(); line != "" {

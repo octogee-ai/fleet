@@ -216,6 +216,42 @@ func TestAPodThatIsNotRunningIsNotReadyAndNamesItsPhase(t *testing.T) {
 	expectContains(t, row, "Pending")
 }
 
+func oddDisplayFields(id string, summary map[string]any) {
+	if id != "shared-a" {
+		return
+	}
+	summary["lastError"] = map[string]any{"message": 42}
+	summary["podDiagnostics"] = map[string]any{"pods": "unavailable"}
+	summary["mountedUsers"] = "two"
+	summary["status"] = 7
+	summary["openclawVersion"] = map[string]any{"major": 2026}
+}
+
+func TestOddDisplayFieldsNeverBlockAMutation(t *testing.T) {
+	for _, argv := range [][]string{
+		{"gateway", "park", "shared-a"},
+		{"gateway", "restart", "shared-a"},
+		{"gateway", "deploy", "shared-a", "--sha=" + strings.Repeat("a", 40)},
+	} {
+		run := fleetWith(t, fixture, runOptions{alterSummary: oddDisplayFields}, argv...)
+		if run.exit != 0 {
+			t.Fatalf("%v: exit %d: %s", argv, run.exit, run.stderr)
+		}
+		run.onlyDryRun(t)
+	}
+}
+
+func TestOddDisplayFieldsAreShownAsSent(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{alterSummary: oddDisplayFields}, "gateway", "inspect", "shared-a")
+	if run.exit != 0 {
+		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	}
+	expectContains(t, lineWith(t, run.stdout, "last error"), "42")
+	expectContains(t, lineWith(t, run.stdout, "pods"), "unavailable")
+	listed := fleetWith(t, fixture, runOptions{alterSummary: oddDisplayFields}, "gateway", "ls")
+	expectContains(t, lineWith(t, listed.stdout, "shared-a"), "7")
+}
+
 func TestGatewayInspectOfAnUnknownGatewaySendsNoDetailsRead(t *testing.T) {
 	run := fleet(t, "gateway", "inspect", "nowhere")
 	expectRefused(t, run)

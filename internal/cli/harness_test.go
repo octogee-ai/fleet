@@ -113,6 +113,7 @@ type runOptions struct {
 	logsTruncated    bool
 	historyLimit     time.Duration
 	alterSummary     func(id string, summary map[string]any)
+	alterUser        func(name string, user map[string]any)
 }
 
 type fleetRun struct {
@@ -509,7 +510,7 @@ func (s *adminStub) placement() map[string]any {
 		if target == "" {
 			target = user.gatewayID
 		}
-		users = append(users, map[string]any{
+		record := map[string]any{
 			"id":                    user.id,
 			"name":                  user.name,
 			"email":                 user.name + "@example.test",
@@ -518,7 +519,11 @@ func (s *adminStub) placement() map[string]any {
 			"mountedGatewayId":      nullable(mounted),
 			"driftState":            s.driftState(user.gatewayID, mounted, target),
 			"provisioningStatus":    provisioningOf(user),
-		})
+		}
+		if s.options.alterUser != nil {
+			s.options.alterUser(user.name, record)
+		}
+		users = append(users, record)
 	}
 	gateways := make([]map[string]any, 0, len(s.fixture.gateways))
 	for _, gateway := range s.fixture.gateways {

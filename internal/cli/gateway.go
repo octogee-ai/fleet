@@ -103,8 +103,8 @@ func gatewayList(i *invocation) error {
 	rows := make([][]string, 0, len(gateways))
 	for _, gateway := range gateways {
 		rows = append(rows, []string{
-			i.style.bold(gateway.GatewayID), dash(gateway.GatewayClass), i.style.state(gateway.DesiredStatus), i.style.state(gateway.Status),
-			vms[gateway.GatewayID], dash(gateway.ImageTag), strconv.Itoa(len(gateway.MountedUsers)), i.ago(gateway.LastHeartbeatAt),
+			i.style.bold(gateway.GatewayID), dash(gateway.GatewayClass), i.style.state(gateway.DesiredStatus), i.style.state(string(gateway.Status)),
+			vms[gateway.GatewayID], dash(string(gateway.ImageTag)), gateway.mounted(), i.ago(gateway.LastHeartbeatAt),
 		})
 	}
 	i.table([]string{"gateway", "class", "desired", "status", "vm", "image", "mounted", "heartbeat"}, rows, "no gateways")
@@ -152,9 +152,9 @@ func gatewayInspect(i *invocation) error {
 		return i.printJSON(map[string]any{"gateway": gateway.record, "details": details.record})
 	}
 	i.line(i.style.bold(gateway.GatewayID) + "  " + dash(gateway.GatewayClass) + " gateway")
-	image := dash(gateway.ImageTag)
+	image := dash(string(gateway.ImageTag))
 	if gateway.OpenclawVersion != "" {
-		image += " " + i.style.dim("(OpenClaw "+gateway.OpenclawVersion+")")
+		image += " " + i.style.dim("(OpenClaw "+string(gateway.OpenclawVersion)+")")
 	}
 	vm := ""
 	if gateway.isolated() {
@@ -163,13 +163,10 @@ func gatewayInspect(i *invocation) error {
 			vm += " " + i.style.dim(strings.TrimSpace(machine.InstanceName+" "+machine.Zone+" "+strings.ToLower(machine.ProvisioningModel)))
 		}
 	}
-	lastError := ""
-	if gateway.LastError != nil && gateway.LastError.Message != "" {
-		lastError = i.style.red(gateway.LastError.Message)
-	}
+	lastError := i.style.red(gateway.lastError())
 	i.fields([]field{
 		{"desired", i.style.dot(gateway.DesiredStatus)},
-		{"status", i.style.state(gateway.Status)},
+		{"status", i.style.state(string(gateway.Status))},
 		{"image", image},
 		{"release", fmt.Sprintf("desired %s, live %s", release(details.Control.DesiredRelease), release(details.Control.LiveRelease))},
 		{"sizing", details.Control.SizingTier},
@@ -197,18 +194,18 @@ func gatewayInspect(i *invocation) error {
 // pods is each pod with whether it is ready, its ready containers, and its
 // phase when it is not running.
 func (i *invocation) pods(gateway gatewaySummary) string {
-	if gateway.PodDiagnostics == nil {
-		return ""
+	if text := gateway.PodDiagnostics.unreadable(); text != "" {
+		return text
 	}
-	pods := make([]string, 0, len(gateway.PodDiagnostics.Pods))
-	for _, pod := range gateway.PodDiagnostics.Pods {
+	pods := make([]string, 0, len(gateway.PodDiagnostics.value.Pods))
+	for _, pod := range gateway.PodDiagnostics.value.Pods {
 		state := "not ready"
 		if pod.ready() {
 			state = "ready"
 		}
 		text := fmt.Sprintf("%s %s %d/%d", pod.Name, i.style.state(state), pod.ReadyContainers, pod.TotalContainers)
 		if pod.Phase != "Running" {
-			text += " " + i.style.yellow(dash(pod.Phase))
+			text += " " + i.style.yellow(dash(string(pod.Phase)))
 		}
 		pods = append(pods, text)
 	}

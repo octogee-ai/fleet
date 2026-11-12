@@ -252,6 +252,21 @@ func TestUserInspectInJSONCarriesTheIsolatedGateway(t *testing.T) {
 	}
 }
 
+func TestOddUserDisplayFieldsNeverBlockAMutation(t *testing.T) {
+	odd := func(name string, user map[string]any) {
+		if name == "ada" {
+			user["email"] = 7
+			user["latestOperation"] = "op-1"
+			user["policyTargetGatewayId"] = map[string]any{"id": "shared-a"}
+		}
+	}
+	run := fleetWith(t, fixture, runOptions{alterUser: odd}, "user", "migrate", "ada", "--to=shared-b")
+	if run.exit != 0 {
+		t.Fatalf("exit %d: %s", run.exit, run.stderr)
+	}
+	run.onlyDryRun(t)
+}
+
 func TestUserBrokerIsReadOnly(t *testing.T) {
 	run := fleet(t, "user", "broker", "ada")
 	expectRead(t, run)

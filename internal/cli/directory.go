@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -24,31 +25,49 @@ const (
 )
 
 type gatewaySummary struct {
-	GatewayID       string   `json:"gatewayId"`
-	GatewayClass    string   `json:"gatewayClass"`
-	DesiredStatus   string   `json:"desiredStatus"`
-	Status          string   `json:"status"`
-	ImageTag        string   `json:"imageTag"`
-	OpenclawVersion string   `json:"openclawVersion"`
-	MountedUsers    []string `json:"mountedUsers"`
-	LastHeartbeatAt instant  `json:"lastHeartbeatAt"`
-	OwnerID         string   `json:"ownerId"`
-	LastError       *struct {
-		Message string `json:"message"`
-	} `json:"lastError"`
-	PodDiagnostics *struct {
+	GatewayID     string `json:"gatewayId"`
+	GatewayClass  string `json:"gatewayClass"`
+	DesiredStatus string `json:"desiredStatus"`
+	OwnerID       string `json:"ownerId"`
+
+	// Display fields decode leniently, so an odd value never blocks a mutation.
+	Status          looseText                  `json:"status"`
+	ImageTag        looseText                  `json:"imageTag"`
+	OpenclawVersion looseText                  `json:"openclawVersion"`
+	MountedUsers    lenient[[]json.RawMessage] `json:"mountedUsers"`
+	LastHeartbeatAt instant                    `json:"lastHeartbeatAt"`
+	LastError       lenient[struct {
+		Message looseText `json:"message"`
+	}] `json:"lastError"`
+	PodDiagnostics lenient[struct {
 		Pods []podDiagnostic `json:"pods"`
-	} `json:"podDiagnostics"`
+	}] `json:"podDiagnostics"`
 
 	record json.RawMessage
 }
 
+// mounted is the number of mounted users, or ? when the list is unreadable.
+func (g gatewaySummary) mounted() string {
+	if !g.MountedUsers.ok {
+		return "?"
+	}
+	return strconv.Itoa(len(g.MountedUsers.value))
+}
+
+// lastError is the gateway's last error message, or what was sent instead.
+func (g gatewaySummary) lastError() string {
+	if text := g.LastError.unreadable(); text != "" {
+		return text
+	}
+	return string(g.LastError.value.Message)
+}
+
 // podDiagnostic is one pod as Kubernetes reports it.
 type podDiagnostic struct {
-	Name            string `json:"name"`
-	Phase           string `json:"phase"`
-	ReadyContainers int    `json:"readyContainers"`
-	TotalContainers int    `json:"totalContainers"`
+	Name            looseText `json:"name"`
+	Phase           looseText `json:"phase"`
+	ReadyContainers int       `json:"readyContainers"`
+	TotalContainers int       `json:"totalContainers"`
 }
 
 // ready is true for a running pod whose containers are all ready.
@@ -156,15 +175,17 @@ type placedUser struct {
 	Name               string `json:"name"`
 	AssignedGatewayID  string `json:"assignedGatewayId"`
 	MountedGatewayID   string `json:"mountedGatewayId"`
-	TargetGatewayID    string `json:"policyTargetGatewayId"`
 	ProvisioningStatus string `json:"provisioningStatus"`
 	DriftState         string `json:"driftState"`
-	Email              string `json:"email"`
-	LatestOperation    *struct {
-		ID     string `json:"id"`
-		Kind   string `json:"kind"`
-		Status string `json:"status"`
-	} `json:"latestOperation"`
+
+	// Display fields decode leniently, so an odd value never blocks a mutation.
+	TargetGatewayID looseText `json:"policyTargetGatewayId"`
+	Email           looseText `json:"email"`
+	LatestOperation lenient[*struct {
+		ID     looseText `json:"id"`
+		Kind   looseText `json:"kind"`
+		Status looseText `json:"status"`
+	}] `json:"latestOperation"`
 
 	record json.RawMessage
 }
@@ -283,7 +304,7 @@ func (i *invocation) namedUser() (placedUser, error) {
 // drift says how the user's placement disagrees with itself, naming the
 // gateways as the Admin API's own placement warnings do.
 func (u placedUser) drift() string {
-	placed, mounted, target := dash(u.AssignedGatewayID), dash(u.MountedGatewayID), dash(u.TargetGatewayID)
+	placed, mounted, target := dash(u.AssignedGatewayID), dash(u.MountedGatewayID), dash(string(u.TargetGatewayID))
 	switch u.DriftState {
 	case "", driftHealthy, driftInFlight:
 		return ""
@@ -297,7 +318,7 @@ func (u placedUser) drift() string {
 	case driftPointer:
 		return fmt.Sprintf("drift: %s is placed on %s but the placement target is %s", u.Name, placed, target)
 	case driftMissing:
-		if u.TargetGatewayID == "" || u.TargetGatewayID == u.AssignedGatewayID {
+		if u.TargetGatewayID == "" || string(u.TargetGatewayID) == u.AssignedGatewayID {
 			return fmt.Sprintf("drift: %s is placed on %s, which is retired or unknown", u.Name, placed)
 		}
 		return fmt.Sprintf("drift: %s is placed on %s with placement target %s; one of them is retired or unknown", u.Name, placed, target)
