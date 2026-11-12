@@ -227,7 +227,7 @@ const passwordsShownOnce = "These passwords are shown once and are not stored. G
 
 func (i *invocation) printOneTimePasswords(request admin.Request, data []byte) error {
 	var issued oneTimePasswords
-	if err := json.Unmarshal(data, &issued); err != nil || issued.Chat.Password == "" || issued.Git.Password == "" {
+	if err := decodeForDisplay(data, &issued); err != nil || issued.Chat.Password == "" || issued.Git.Password == "" {
 		return errors.New("the server returned no passwords; run this command again to issue new ones")
 	}
 	if i.json {

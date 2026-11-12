@@ -50,6 +50,15 @@ type fixtureUser struct {
 	id, name, gatewayID, provisioning string
 	// target is the placement target the Admin API reports; empty means the user's gateway.
 	target string
+	// email defaults to the name at example.test.
+	email string
+}
+
+func (u fixtureUser) address() string {
+	if u.email != "" {
+		return u.email
+	}
+	return u.name + "@example.test"
 }
 
 type fixtureGateway struct {
@@ -116,6 +125,7 @@ type runOptions struct {
 	alterUser        func(name string, user map[string]any)
 	detailsFailFor   string
 	interruptDetails bool
+	errorMessage     string
 }
 
 type fleetRun struct {
@@ -230,6 +240,9 @@ func (s *adminStub) serveDryRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *adminStub) refusal(message string) map[string]any {
+	if s.options.errorMessage != "" {
+		message = s.options.errorMessage
+	}
 	body := map[string]any{"error": message}
 	if s.options.errorCode != "" {
 		body["code"] = s.options.errorCode
@@ -396,7 +409,7 @@ func (s *adminStub) details(gateway fixtureGateway) map[string]any {
 	for _, uid := range gateway.mounted {
 		for _, user := range s.fixture.users {
 			if user.id == uid {
-				mounted = append(mounted, map[string]any{"uid": uid, "slug": user.name, "username": user.name, "email": user.name + "@example.test", "lastActive": "2026-11-09T23:05:00Z"})
+				mounted = append(mounted, map[string]any{"uid": uid, "slug": user.name, "username": user.name, "email": user.address(), "lastActive": "2026-11-09T23:05:00Z"})
 			}
 		}
 	}
@@ -522,7 +535,7 @@ func (s *adminStub) placement() map[string]any {
 		record := map[string]any{
 			"id":                    user.id,
 			"name":                  user.name,
-			"email":                 user.name + "@example.test",
+			"email":                 user.address(),
 			"policyTargetGatewayId": nullable(target),
 			"assignedGatewayId":     nullable(user.gatewayID),
 			"mountedGatewayId":      nullable(mounted),

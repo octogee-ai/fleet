@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/octogee-ai/octogee-fleet/internal/terminal"
 )
 
 const (
@@ -85,23 +87,26 @@ func (e *HTTPError) Label() string {
 	if e.Code == "" {
 		return strconv.Itoa(e.Status)
 	}
-	return fmt.Sprintf("%d %s", e.Status, e.Code)
+	return fmt.Sprintf("%d %s", e.Status, terminal.Escape(e.Code))
 }
 
+// Error is shown to people, so the server's message has its control
+// characters escaped.
 func (e *HTTPError) Error() string {
+	message := terminal.Escape(e.Message)
 	switch {
 	case e.Status == http.StatusUnauthorized:
-		return fmt.Sprintf("the Admin API rejected this sign-in (%s): %s", e.Label(), e.Message)
+		return fmt.Sprintf("the Admin API rejected this sign-in (%s): %s", e.Label(), message)
 	case e.Status == http.StatusForbidden:
-		return fmt.Sprintf("not permitted (%s): %s", e.Label(), e.Message)
+		return fmt.Sprintf("not permitted (%s): %s", e.Label(), message)
 	case e.Status == http.StatusNotFound:
-		return fmt.Sprintf("not found (%s): %s", e.Label(), e.Message)
+		return fmt.Sprintf("not found (%s): %s", e.Label(), message)
 	case e.Status >= 500:
-		return fmt.Sprintf("the Admin API failed (%s): %s", e.Label(), e.Message)
+		return fmt.Sprintf("the Admin API failed (%s): %s", e.Label(), message)
 	case e.Status >= 400:
-		return fmt.Sprintf("the Admin API refused this request (%s): %s", e.Label(), e.Message)
+		return fmt.Sprintf("the Admin API refused this request (%s): %s", e.Label(), message)
 	}
-	return fmt.Sprintf("the Admin API returned %s: %s", e.Label(), e.Message)
+	return fmt.Sprintf("the Admin API returned %s: %s", e.Label(), message)
 }
 
 // Client calls one environment's Admin API as the operator. It is safe for

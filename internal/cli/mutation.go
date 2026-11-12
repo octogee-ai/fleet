@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
+	"github.com/octogee-ai/octogee-fleet/internal/terminal"
 )
 
 // change is one mutation: the request, and how to say what it did.
@@ -169,17 +170,17 @@ func (i *invocation) dryRun(request admin.Request) error {
 		Plans  []json.RawMessage `json:"plans"`
 	}
 	if err := json.Unmarshal(data, &answer); err != nil || !answer.DryRun {
-		return fmt.Errorf("the Admin API did not answer with a plan, so the change may have been applied; it returned: %s", strings.TrimSpace(string(data)))
+		return fmt.Errorf("the Admin API did not answer with a plan, so the change may have been applied; it returned: %s", terminal.Escape(strings.TrimSpace(string(data))))
 	}
 	if len(answer.Plans) == 0 {
-		return fmt.Errorf("the Admin API answered the dry run without saying what it would do; it returned: %s", strings.TrimSpace(string(data)))
+		return fmt.Errorf("the Admin API answered the dry run without saying what it would do; it returned: %s", terminal.Escape(strings.TrimSpace(string(data))))
 	}
 	if i.json {
 		return i.printJSON(dryRunDocument(request, true, answer.Plans))
 	}
 	plans := make([]dryRunPlan, len(answer.Plans))
 	for index, raw := range answer.Plans {
-		if err := json.Unmarshal(raw, &plans[index]); err != nil {
+		if err := decodeForDisplay(raw, &plans[index]); err != nil {
 			return fmt.Errorf("decode the dry run's plan: %w", err)
 		}
 	}
@@ -203,7 +204,7 @@ func dryRunRefusal(err error) error {
 	if !errors.As(err, &refused) || refused.Status == http.StatusUnauthorized || refused.Status == http.StatusForbidden {
 		return err
 	}
-	return fmt.Errorf("dry run: the Admin API would refuse this request (%s): %s\nnothing was changed", refused.Label(), refused.Message)
+	return fmt.Errorf("dry run: the Admin API would refuse this request (%s): %s\nnothing was changed", refused.Label(), terminal.Escape(refused.Message))
 }
 
 type dryRunPlan struct {
@@ -265,7 +266,7 @@ type operationRef struct {
 // first, then any other field that names one, such as erasureOperationId.
 func operationIDs(data []byte) []operationRef {
 	var answer map[string]any
-	if json.Unmarshal(data, &answer) != nil {
+	if decodeForDisplay(data, &answer) != nil {
 		return nil
 	}
 	var refs []operationRef

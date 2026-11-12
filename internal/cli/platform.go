@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
+	"github.com/octogee-ai/octogee-fleet/internal/terminal"
 )
 
 var platformCommands = []*command{
@@ -297,7 +297,7 @@ type logEntry struct {
 // did not read to the end with a truncated entry; that becomes a warning.
 func (i *invocation) logLine(line []byte) {
 	var entry logEntry
-	parsed := json.Unmarshal(line, &entry) == nil
+	parsed := decodeForDisplay(line, &entry) == nil
 	if parsed && entry.Details.Truncated {
 		i.notice("older entries in this window were not read; shorten --since or add a filter")
 	}
@@ -305,7 +305,7 @@ func (i *invocation) logLine(line []byte) {
 	case i.json:
 		i.line(string(line))
 	case !parsed:
-		i.line(string(line))
+		i.line(terminal.Escape(string(line)))
 	case !entry.Details.Truncated:
 		i.line(fmt.Sprintf("%s %s %s %s", i.style.dim(entry.Timestamp), i.style.toned(toneOf(entry.Severity), entry.Severity), i.style.cyan(entry.Service), entry.Message))
 	}

@@ -242,17 +242,18 @@ func (i *invocation) read(path string, query url.Values, view any) (json.RawMess
 	if view == nil {
 		return response, nil
 	}
-	if err := json.Unmarshal(response, view); err != nil {
+	if err := decodeForDisplay(response, view); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
 	return response, nil
 }
 
-// records decodes each record and keeps it as the Admin API sent it.
+// records decodes each record for display and keeps it as the Admin API sent
+// it, for JSON output.
 func records[T any](raw []json.RawMessage, keep func(*T, json.RawMessage)) ([]T, error) {
 	decoded := make([]T, len(raw))
 	for index, record := range raw {
-		if err := json.Unmarshal(record, &decoded[index]); err != nil {
+		if err := decodeForDisplay(record, &decoded[index]); err != nil {
 			return nil, err
 		}
 		keep(&decoded[index], record)
@@ -268,7 +269,7 @@ func (i *invocation) gateways(all bool) ([]gatewaySummary, error) {
 	if all {
 		query = url.Values{"all": {"true"}}
 	}
-	if _, err := i.read(admin.Path("gateways"), query, &response); err != nil {
+	if err := i.admin.Get(i.ctx, admin.Path("gateways"), query, &response); err != nil {
 		return nil, err
 	}
 	gateways, err := records(response.Gateways, func(g *gatewaySummary, raw json.RawMessage) { g.record = raw })
@@ -299,7 +300,7 @@ func (i *invocation) placement() (placement, error) {
 	var response struct {
 		Users []json.RawMessage `json:"users"`
 	}
-	if _, err := i.read(admin.Path("placement"), nil, &response); err != nil {
+	if err := i.admin.Get(i.ctx, admin.Path("placement"), nil, &response); err != nil {
 		return placement{}, err
 	}
 	users, err := records(response.Users, func(u *placedUser, raw json.RawMessage) { u.record = raw })
