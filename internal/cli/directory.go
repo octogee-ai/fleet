@@ -24,7 +24,7 @@ type gatewaySummary struct {
 	ImageTag        string   `json:"imageTag"`
 	OpenclawVersion string   `json:"openclawVersion"`
 	MountedUsers    []string `json:"mountedUsers"`
-	LastHeartbeatAt string   `json:"lastHeartbeatAt"`
+	LastHeartbeatAt instant  `json:"lastHeartbeatAt"`
 	OwnerID         string   `json:"ownerId"`
 }
 

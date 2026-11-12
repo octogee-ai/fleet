@@ -41,14 +41,14 @@ func userList(i *invocation) error {
 		if filter != "" && user.AssignedGatewayID != filter && user.MountedGatewayID != filter {
 			continue
 		}
-		rows = append(rows, []string{user.Name, user.ID, dash(user.AssignedGatewayID), dash(user.MountedGatewayID), dash(user.ProvisioningStatus)})
+		rows = append(rows, []string{i.style.bold(user.Name), i.style.dim(user.ID), dash(user.AssignedGatewayID), dash(user.MountedGatewayID), i.style.state(user.ProvisioningStatus)})
 		if line := user.drift(); line != "" {
 			drift = append(drift, line)
 		}
 	}
-	writeTable(i.out, []string{"name", "id", "gateway", "mounted", "status"}, rows)
+	i.table([]string{"name", "id", "gateway", "mounted", "status"}, rows, "no users")
 	for _, line := range drift {
-		fmt.Fprintln(i.out, line)
+		i.warn(line)
 	}
 	return nil
 }
@@ -62,7 +62,7 @@ func userInspect(i *invocation) error {
 		return err
 	}
 	if line := user.drift(); line != "" {
-		fmt.Fprintln(i.out, line)
+		i.warn(line)
 	}
 	return nil
 }
@@ -112,10 +112,10 @@ func (i *invocation) printOneTimePasswords(data []byte) error {
 		return errors.New("the server returned no passwords; run this command again to issue new ones")
 	}
 	fmt.Fprintf(i.out, "operation %s\n", issued.OperationID)
-	writeTable(i.out, []string{"system", "username", "password"}, [][]string{
+	i.table([]string{"system", "username", "password"}, [][]string{
 		{"chat", issued.Chat.Username, issued.Chat.Password},
 		{"git", issued.Git.Username, issued.Git.Password},
-	})
+	}, "")
 	fmt.Fprintln(i.out, "These passwords are shown once and are not stored. Git asks for a new one at first sign-in; ask the user to change the chat password too.")
 	return nil
 }

@@ -23,6 +23,8 @@ import (
 
 const sha = "0123456789abcdef0123456789abcdef01234567"
 
+var fixedNow = time.Date(2026, 11, 10, 0, 5, 0, 0, time.UTC)
+
 var (
 	signedInToken  = idToken(time.Now().Add(time.Hour))
 	expiredToken   = idToken(time.Now().Add(-time.Hour))
@@ -100,6 +102,7 @@ type runOptions struct {
 	refuseDryRunWith int
 	appliesDryRuns   bool
 	plansNothing     bool
+	env              map[string]string
 }
 
 type fleetRun struct {
@@ -297,14 +300,15 @@ func (s *adminStub) gatewaySummaries() []map[string]any {
 	summaries := make([]map[string]any, 0, len(s.fixture.gateways))
 	for _, gateway := range s.fixture.gateways {
 		summaries = append(summaries, map[string]any{
-			"gatewayId":     gateway.id,
-			"gatewayClass":  gateway.class,
-			"desiredStatus": gateway.desired,
-			"status":        "ready",
-			"imageTag":      "v42",
-			"mountedUsers":  gateway.mounted,
-			"ownerId":       gateway.owner,
-			"lastError":     map[string]any{"message": "ensure failed on " + gateway.id},
+			"gatewayId":       gateway.id,
+			"gatewayClass":    gateway.class,
+			"desiredStatus":   gateway.desired,
+			"status":          "ready",
+			"imageTag":        "v42",
+			"mountedUsers":    gateway.mounted,
+			"ownerId":         gateway.owner,
+			"lastHeartbeatAt": "2026-11-10T00:02:00Z",
+			"lastError":       map[string]any{"message": "ensure failed on " + gateway.id},
 			"podDiagnostics": map[string]any{
 				"pods": []map[string]any{{"name": "pod-" + gateway.id, "ready": true}},
 			},
@@ -480,6 +484,9 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 	}
 	seedSession(t, store, fixture.environment, options.session, binding)
 	environment := map[string]string{"OCTOGEE_FLEET_CONFIG": path, "XDG_STATE_HOME": stateHome}
+	for name, value := range options.env {
+		environment[name] = value
+	}
 	var stdout, stderr bytes.Buffer
 	runtime := Runtime{
 		Stdout:  &stdout,
@@ -487,6 +494,7 @@ func execute(t *testing.T, fixture fleetFixture, options runOptions, argv []stri
 		Getenv:  func(name string) string { return environment[name] },
 		HTTP:    server.Client(),
 		Sleep:   func(context.Context, time.Duration) error { return nil },
+		Now:     func() time.Time { return fixedNow },
 		Version: "test",
 	}
 	if options.defaultHTTP {

@@ -53,9 +53,9 @@ func opsList(i *invocation) error {
 	}
 	rows := make([][]string, 0, len(response.Operations))
 	for _, operation := range response.Operations {
-		rows = append(rows, []string{operation.ID, dash(operation.Kind), dash(operation.Status), dash(operation.CreatedBy)})
+		rows = append(rows, []string{i.style.bold(operation.ID), dash(operation.Kind), i.style.state(operation.Status), dash(operation.CreatedBy)})
 	}
-	writeTable(i.out, []string{"id", "kind", "status", "by"}, rows)
+	i.table([]string{"id", "kind", "status", "by"}, rows, "no operations")
 	return nil
 }
 
@@ -100,15 +100,15 @@ func releaseStatus(i *invocation) error {
 	if err := i.admin.Get(i.ctx, admin.Path("release-status"), nil, &response); err != nil {
 		return err
 	}
-	fmt.Fprintf(i.out, "%s: %d of %d serving gateways converged\n", dash(response.Summary.Status), response.Summary.Converged, response.Summary.Serving)
-	if len(response.Summary.Blockers) > 0 {
-		fmt.Fprintf(i.out, "outstanding: %s\n", strings.Join(response.Summary.Blockers, "; "))
+	i.line(fmt.Sprintf("%s: %d of %d serving gateways converged", i.style.dot(response.Summary.Status), response.Summary.Converged, response.Summary.Serving))
+	for _, blocker := range response.Summary.Blockers {
+		i.warn("outstanding: " + blocker)
 	}
 	rows := make([][]string, 0, len(response.Gateways))
 	for _, gateway := range response.Gateways {
-		rows = append(rows, []string{gateway.GatewayID, release(gateway.Desired), release(gateway.Live), release(gateway.Runtime), dash(gateway.Status)})
+		rows = append(rows, []string{i.style.bold(gateway.GatewayID), release(gateway.Desired), release(gateway.Live), release(gateway.Runtime), i.style.state(gateway.Status)})
 	}
-	writeTable(i.out, []string{"gateway", "desired", "live", "runtime", "status"}, rows)
+	i.table([]string{"gateway", "desired", "live", "runtime", "status"}, rows, "no gateways")
 	return nil
 }
 
@@ -134,7 +134,7 @@ func poolShow(i *invocation) error {
 			strconv.Itoa(gateway.AssignedCount), strconv.Itoa(gateway.MountedCount), strconv.Itoa(gateway.DriftCount),
 		})
 	}
-	writeTable(i.out, []string{"gateway", "class", "desired", "assigned", "mounted", "mismatched"}, rows)
+	i.table([]string{"gateway", "class", "desired", "assigned", "mounted", "mismatched"}, rows, "no gateways")
 	return nil
 }
 

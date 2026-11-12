@@ -31,11 +31,11 @@ func gatewayList(i *invocation) error {
 	rows := make([][]string, 0, len(gateways))
 	for _, gateway := range gateways {
 		rows = append(rows, []string{
-			gateway.GatewayID, dash(gateway.GatewayClass), dash(gateway.DesiredStatus), dash(gateway.Status),
-			dash(gateway.ImageTag), strconv.Itoa(len(gateway.MountedUsers)), dash(gateway.LastHeartbeatAt),
+			i.style.bold(gateway.GatewayID), dash(gateway.GatewayClass), i.style.state(gateway.DesiredStatus), i.style.state(gateway.Status),
+			dash(gateway.ImageTag), strconv.Itoa(len(gateway.MountedUsers)), i.ago(gateway.LastHeartbeatAt),
 		})
 	}
-	writeTable(i.out, []string{"gateway", "class", "desired", "status", "image", "mounted", "heartbeat"}, rows)
+	i.table([]string{"gateway", "class", "desired", "status", "image", "mounted", "heartbeat"}, rows, "no gateways")
 	return nil
 }
 
@@ -130,12 +130,12 @@ func gatewayRetire(i *invocation) error {
 func gatewayReleases(i *invocation) error {
 	var response struct {
 		Releases []struct {
-			Release   int    `json:"release"`
-			ImageTag  string `json:"imageTag"`
-			CreatedAt string `json:"createdAt"`
-			CreatedBy string `json:"createdBy"`
-			Live      bool   `json:"live"`
-			Desired   bool   `json:"desired"`
+			Release   int     `json:"release"`
+			ImageTag  string  `json:"imageTag"`
+			CreatedAt instant `json:"createdAt"`
+			CreatedBy string  `json:"createdBy"`
+			Live      bool    `json:"live"`
+			Desired   bool    `json:"desired"`
 		} `json:"releases"`
 	}
 	if err := i.admin.Get(i.ctx, admin.Path("gateways", i.args[0], "releases"), nil, &response); err != nil {
@@ -144,11 +144,11 @@ func gatewayReleases(i *invocation) error {
 	rows := make([][]string, 0, len(response.Releases))
 	for _, release := range response.Releases {
 		rows = append(rows, []string{
-			strconv.Itoa(release.Release), dash(release.ImageTag), dash(release.CreatedAt), dash(release.CreatedBy),
-			strconv.FormatBool(release.Live), strconv.FormatBool(release.Desired),
+			i.style.bold(strconv.Itoa(release.Release)), dash(release.ImageTag), i.ago(release.CreatedAt), dash(release.CreatedBy),
+			i.check(release.Live), i.check(release.Desired),
 		})
 	}
-	writeTable(i.out, []string{"release", "image", "created", "by", "live", "desired"}, rows)
+	i.table([]string{"release", "image", "created", "by", "live", "desired"}, rows, "no releases")
 	return nil
 }
 

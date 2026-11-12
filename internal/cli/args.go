@@ -53,8 +53,14 @@ func parseArgs(argv []string) (parsedArgs, error) {
 	return parsed, nil
 }
 
+// globalFlags are accepted by every command.
+var globalFlags = flagSet{"env": valueFlag, "no-color": bareFlag}
+
 func (c *command) acceptedFlags() flagSet {
 	accepted := flagSet{}
+	for name, kind := range globalFlags {
+		accepted[name] = kind
+	}
 	for name, kind := range c.flags {
 		accepted[name] = kind
 	}
@@ -77,9 +83,6 @@ func (c *command) validate(parsed parsedArgs, args []string) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if name == "env" {
-			continue
-		}
 		if err := checkFlag(c, name, parsed.flags[name], accepted); err != nil {
 			return err
 		}

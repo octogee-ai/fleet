@@ -79,7 +79,7 @@ func hasPrefix(path, prefix []string) bool {
 	return true
 }
 
-func help(out io.Writer, target []string) error {
+func help(out ui, target []string) error {
 	if len(target) == 0 {
 		writeHelp(out)
 		return nil
@@ -92,7 +92,8 @@ func help(out io.Writer, target []string) error {
 	return nil
 }
 
-func writeHelp(out io.Writer) {
+func writeHelp(u ui) {
+	out := u.out
 	fmt.Fprintln(out, "octogee-fleet: operate a fleet of OpenClaw gateways through the Admin API")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "usage: octogee-fleet --env=<name> <command> [arguments]")
@@ -108,16 +109,17 @@ func writeHelp(out io.Writer) {
 	fmt.Fprintln(out, "Run `octogee-fleet help <command>` for one command's arguments.")
 }
 
-func writeCommandHelp(out io.Writer, cmd *command) {
-	fmt.Fprintln(out, cmd.summary)
-	fmt.Fprintln(out)
-	fmt.Fprintf(out, "usage: octogee-fleet --env=<name> %s\n", cmd.synopsis())
+func writeCommandHelp(u ui, cmd *command) {
+	fmt.Fprintln(u.out, cmd.summary)
+	fmt.Fprintln(u.out)
+	fmt.Fprintf(u.out, "usage: octogee-fleet --env=<name> %s\n", cmd.synopsis())
 }
 
 type invocation struct {
+	ui
 	ctx         context.Context
-	out         io.Writer
 	runtime     Runtime
+	waiting     *spinner
 	name        string
 	environment config.Environment
 	admin       *admin.Client
@@ -257,15 +259,6 @@ func (i *invocation) printOutcome(data []byte) {
 	}
 }
 
-func (i *invocation) printJSON(value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode output: %w", err)
-	}
-	fmt.Fprintln(i.out, string(data))
-	return nil
-}
-
 func (i *invocation) post(path string, body map[string]any, notes ...string) error {
 	return i.mutate(admin.Request{Method: http.MethodPost, Path: path, Body: body}, notes...)
 }
@@ -300,24 +293,4 @@ func positiveInt(flag, value string) (int, error) {
 		return 0, fmt.Errorf("--%s must be a positive integer, got %q", flag, value)
 	}
 	return number, nil
-}
-
-func writeTable(out io.Writer, header []string, rows [][]string) {
-	if len(rows) == 0 {
-		fmt.Fprintln(out, "(none)")
-		return
-	}
-	table := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(table, strings.ToUpper(strings.Join(header, "\t")))
-	for _, row := range rows {
-		fmt.Fprintln(table, strings.Join(row, "\t"))
-	}
-	table.Flush()
-}
-
-func dash(value string) string {
-	if value == "" {
-		return "-"
-	}
-	return value
 }
