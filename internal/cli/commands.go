@@ -25,7 +25,9 @@ type command struct {
 	required []string
 	mutating bool
 	examples []string
-	run      func(*invocation) error
+	// standalone commands need no environment and call no Admin API.
+	standalone bool
+	run        func(*invocation) error
 }
 
 func (c *command) name() string { return strings.Join(c.path, " ") }
@@ -47,7 +49,8 @@ func allCommands() []*command {
 	commands := append([]*command{}, gatewayCommands...)
 	commands = append(commands, userCommands...)
 	commands = append(commands, platformCommands...)
-	return append(commands, authCommands...)
+	commands = append(commands, authCommands...)
+	return append(commands, completionCommand)
 }
 
 func lookup(positional []string) (*command, []string) {

@@ -90,6 +90,9 @@ func run(ctx context.Context, argv []string, runtime Runtime) error {
 	if err := cmd.validate(parsed, args); err != nil {
 		return err
 	}
+	if cmd.standalone {
+		return cmd.run(&invocation{ui: out, ctx: ctx, runtime: runtime, args: args, flags: parsed.flags})
+	}
 	invocation, err := newInvocation(ctx, parsed, args, runtime, out)
 	if err != nil {
 		return err
