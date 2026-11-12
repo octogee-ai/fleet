@@ -81,7 +81,7 @@ A shared gateway stays on the build it was added on, and the Admin API refuses `
 | `user unassign <user>` | Removes a user's placement | `POST /users/<id>/unassign` |
 | `user replace-vm <user> [--force --accept-boot-data-loss]` | Replaces the VM of the user's isolated gateway | `POST /users/<id>/vm/replace` |
 | `user delete <user> [--erase-now]` | Schedules the user's deletion; `--erase-now` erases at once | `POST /users/<id>/delete` |
-| `user broker <user>` | Shows the user's model broker diagnostics | `GET /users/<id>/broker-diagnostics` |
+| `user broker <user>` | Shows the user's model broker usage by window; `--format=json` adds daily usage by model, the token breakdown and recent calls | `GET /users/<id>/broker-diagnostics` |
 
 ## Platform commands
 

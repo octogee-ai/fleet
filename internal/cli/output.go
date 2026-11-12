@@ -227,6 +227,14 @@ func (u ui) stamp(t instant) string {
 	return t.at.UTC().Format("2006-01-02 15:04:05 UTC") + " " + u.style.dim("("+relative(t.at, u.now())+")")
 }
 
+// stampShort is a table cell: when, in UTC, and how long ago.
+func (u ui) stampShort(t instant) string {
+	if t.at.IsZero() {
+		return dash(t.raw)
+	}
+	return t.at.UTC().Format("01-02 15:04") + " " + u.style.dim("("+relative(t.at, u.now())+")")
+}
+
 func relative(at, now time.Time) string {
 	elapsed := now.Sub(at)
 	suffix := " ago"

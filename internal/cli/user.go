@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/octogee-ai/octogee-fleet/internal/admin"
 )
@@ -367,9 +368,27 @@ func userBroker(i *invocation) error {
 	if err != nil {
 		return err
 	}
-	diagnostics, err := i.read(admin.Path("users", user.ID, "broker-diagnostics"), nil, nil)
+	var response struct {
+		Windows []struct {
+			Start    instant `json:"windowStartMs"`
+			Tokens   int64   `json:"totalTokens"`
+			Requests int64   `json:"requestCount"`
+			Cost     float64 `json:"costUsd"`
+		} `json:"windows"`
+	}
+	diagnostics, err := i.read(admin.Path("users", user.ID, "broker-diagnostics"), nil, &response)
 	if err != nil {
 		return err
 	}
-	return i.printJSON(diagnostics)
+	if i.json {
+		return i.printJSON(diagnostics)
+	}
+	rows := make([][]string, 0, len(response.Windows))
+	for _, window := range response.Windows {
+		rows = append(rows, []string{i.stampShort(window.Start), strconv.FormatInt(window.Requests, 10), strconv.FormatInt(window.Tokens, 10), fmt.Sprintf("$%.2f", window.Cost)})
+	}
+	i.line(i.style.bold(user.Name) + "  " + i.style.dim("model broker usage by window"))
+	i.table([]string{"window", "requests", "tokens", "cost"}, rows, "no usage in the recent windows")
+	i.line(i.style.dim("--format=json adds daily usage by model, the token breakdown and recent calls"))
+	return nil
 }

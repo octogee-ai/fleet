@@ -252,6 +252,15 @@ func TestUserBrokerIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestUserBrokerListsUsageWindowsAsATable(t *testing.T) {
+	run := fleet(t, "user", "broker", "ada")
+	expectContains(t, run.stdout, "REQUESTS")
+	row := lineWith(t, run.stdout, "1h ago")
+	for _, want := range []string{"3", "12000", "$0.42"} {
+		expectContains(t, row, want)
+	}
+}
+
 func TestUserAddCreatesTheUserThroughOneRequest(t *testing.T) {
 	run := fleet(t, "user", "add", "lin", "--email=lin@example.com", "--apply")
 	expectApplied(t, run, adminRequest{Method: http.MethodPost, Path: "/api/admin/users", Body: map[string]any{"name": "lin", "email": "lin@example.com"}})

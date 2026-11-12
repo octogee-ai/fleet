@@ -358,7 +358,9 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "releases":
 		writeJSON(w, http.StatusOK, map[string]any{"releases": []map[string]any{{"release": 3, "imageTag": "v42", "live": true, "desired": true}}})
 	case len(segments) == 3 && segments[0] == "users" && segments[2] == "broker-diagnostics":
-		writeJSON(w, http.StatusOK, map[string]any{"windows": []any{}})
+		writeJSON(w, http.StatusOK, map[string]any{"windows": []map[string]any{
+			{"windowStartMs": minutesAgo(65), "totalTokens": 12000, "requestCount": 3, "costUsd": 0.42},
+		}})
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no route: " + path})
 	}
