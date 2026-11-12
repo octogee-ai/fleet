@@ -44,18 +44,51 @@ func TestNoColorTurnsColourOff(t *testing.T) {
 	}
 }
 
+var forcedWithoutColour = runOptions{env: map[string]string{"FORCE_COLOR": "1", "NO_COLOR": "1"}}
+
 func TestColourDoesNotMoveTableColumns(t *testing.T) {
-	plain := fleet(t, "gateway", "ls")
+	plain := fleetWith(t, fixture, forcedWithoutColour, "gateway", "ls")
 	coloured := fleetWith(t, fixture, forcedColor, "gateway", "ls")
 	if got := ansiPattern.ReplaceAllString(coloured.stdout, ""); got != plain.stdout {
 		t.Fatalf("coloured table without its escapes:\n%s\nplain table:\n%s", got, plain.stdout)
 	}
 }
 
-func TestTablesShowTimesRelativeToNow(t *testing.T) {
-	run := fleet(t, "gateway", "ls")
+func TestTablesShowTimesRelativeToNowAtATerminal(t *testing.T) {
+	run := fleetWith(t, fixture, forcedColor, "gateway", "ls")
 	expectRead(t, run)
 	expectContains(t, run.stdout, "3m ago")
+}
+
+func TestPipedTablesShowTimesAsTheAdminAPISentThem(t *testing.T) {
+	run := fleet(t, "gateway", "ls")
+	expectContains(t, lineWith(t, run.stdout, "shared-a"), "2026-11-10T00:02:00.000Z")
+	if strings.Contains(run.stdout, " ago") {
+		t.Fatalf("piped output carries a relative time:\n%s", run.stdout)
+	}
+}
+
+func TestPipedTablesShowMillisecondTimesAsRFC3339(t *testing.T) {
+	run := fleet(t, "ops", "ls")
+	expectContains(t, lineWith(t, run.stdout, "op-1"), "2026-11-10T00:02:00Z")
+}
+
+func TestAPipedAuditWithoutAKindKeepsItsCellWhole(t *testing.T) {
+	run := fleet(t, "ops", "ls")
+	fields := strings.Fields(lineWith(t, run.stdout, "audit-1"))
+	if len(fields) != 5 || fields[1] != "update-gateway-desired-configuration" {
+		t.Fatalf("fields %q", fields)
+	}
+}
+
+func TestPipedCellsHaveNoSpaces(t *testing.T) {
+	run := fleet(t, "gateway", "ls")
+	fields := strings.Fields(lineWith(t, run.stdout, "iso-grace"))
+	header := strings.Fields(lineWith(t, run.stdout, "GATEWAY"))
+	if len(fields) != len(header) {
+		t.Fatalf("a piped row splits into %d fields under %d headers:\n%s", len(fields), len(header), run.stdout)
+	}
+	expectContains(t, lineWith(t, run.stdout, "iso-grace"), "suspended(idle)")
 }
 
 func TestErrorsLeadWithACrossOnlyOnATerminal(t *testing.T) {

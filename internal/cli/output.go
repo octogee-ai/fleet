@@ -182,7 +182,7 @@ func (u ui) fields(fields []field) {
 }
 
 // instant is a time the Admin API sent as an RFC 3339 string or as
-// milliseconds since the epoch.
+// milliseconds since the epoch. raw keeps a string as sent.
 type instant struct {
 	at  time.Time
 	raw string
@@ -200,10 +200,8 @@ func (t *instant) UnmarshalJSON(data []byte) error {
 func instantOf(value any) instant {
 	switch typed := value.(type) {
 	case string:
-		if parsed, err := time.Parse(time.RFC3339Nano, typed); err == nil {
-			return instant{at: parsed}
-		}
-		return instant{raw: typed}
+		parsed, _ := time.Parse(time.RFC3339Nano, typed)
+		return instant{at: parsed, raw: typed}
 	case float64:
 		if typed > 0 {
 			return instant{at: time.UnixMilli(int64(typed))}
@@ -212,25 +210,43 @@ func instantOf(value any) instant {
 	return instant{}
 }
 
+// ago is a table cell: how long ago at a terminal, the absolute time when piped.
 func (u ui) ago(t instant) string {
+	if !u.style.glyphs {
+		return dash(absolute(t))
+	}
 	if t.at.IsZero() {
 		return dash(t.raw)
 	}
 	return relative(t.at, u.now())
 }
 
-// stamp is an absolute time with how long ago it was, for a detail view.
-func (u ui) stamp(t instant) string {
-	if t.at.IsZero() {
+// absolute is the time as the Admin API sent it, or in RFC 3339 when it sent
+// milliseconds.
+func absolute(t instant) string {
+	switch {
+	case t.raw != "":
 		return t.raw
+	case t.at.IsZero():
+		return ""
+	}
+	return t.at.UTC().Format(time.RFC3339Nano)
+}
+
+// stamp is an absolute time with how long ago it was, for a detail view. When
+// piped it is the absolute time alone.
+func (u ui) stamp(t instant) string {
+	if !u.style.glyphs || t.at.IsZero() {
+		return absolute(t)
 	}
 	return t.at.UTC().Format("2006-01-02 15:04:05 UTC") + " " + u.style.dim("("+relative(t.at, u.now())+")")
 }
 
-// stampShort is a table cell: when, in UTC, and how long ago.
+// stampShort is a table cell: when, in UTC, and how long ago. When piped it is
+// the absolute time alone.
 func (u ui) stampShort(t instant) string {
-	if t.at.IsZero() {
-		return dash(t.raw)
+	if !u.style.glyphs || t.at.IsZero() {
+		return dash(absolute(t))
 	}
 	return t.at.UTC().Format("01-02 15:04") + " " + u.style.dim("("+relative(t.at, u.now())+")")
 }

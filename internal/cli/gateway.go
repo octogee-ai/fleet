@@ -147,7 +147,7 @@ func gatewayInspect(i *invocation) error {
 	}
 	vm := ""
 	if gateway.isolated() {
-		vm = i.style.toned(details.Control.VM.tone(), details.Control.VM.state())
+		vm = i.style.toned(details.Control.VM.tone(), details.Control.VM.state(!i.style.glyphs))
 		if machine := details.Control.VM; machine != nil {
 			vm += " " + i.style.dim(strings.TrimSpace(machine.InstanceName+" "+machine.Zone+" "+strings.ToLower(machine.ProvisioningModel)))
 		}
@@ -174,7 +174,7 @@ func gatewayInspect(i *invocation) error {
 	i.heading("Recent operations")
 	operations := make([][]string, 0, len(details.RecentOperations))
 	for _, operation := range details.RecentOperations {
-		operations = append(operations, []string{i.style.bold(operation.ID), operation.label(), i.style.state(operation.Status), dash(operation.CreatedBy), i.ago(operation.CreatedAt)})
+		operations = append(operations, []string{i.style.bold(operation.ID), operation.label(!i.style.glyphs), i.style.state(operation.Status), dash(operation.CreatedBy), i.ago(operation.CreatedAt)})
 	}
 	i.table([]string{"id", "kind", "status", "by", "created"}, operations, "no recent operations")
 	return nil

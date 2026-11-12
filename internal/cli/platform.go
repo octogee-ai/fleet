@@ -94,10 +94,14 @@ type operationView struct {
 	} `json:"steps"`
 }
 
-// label is the operation's kind, or what an audit without a kind did.
-func (o operationView) label() string {
-	if o.Kind != "" {
+// label is the operation's kind, or what an audit without a kind did. A
+// compact label has hyphens for spaces, for piped tables.
+func (o operationView) label(compact bool) string {
+	switch {
+	case o.Kind != "":
 		return o.Kind
+	case compact:
+		return dash(strings.ReplaceAll(strings.TrimSpace(o.What), " ", "-"))
 	}
 	return dash(o.What)
 }
@@ -120,7 +124,7 @@ func opsList(i *invocation) error {
 	rows := make([][]string, 0, len(response.Operations))
 	for _, operation := range response.Operations {
 		rows = append(rows, []string{
-			i.style.bold(operation.ID), operation.label(), i.style.state(operation.Status), dash(operation.CreatedBy), i.ago(operation.CreatedAt),
+			i.style.bold(operation.ID), operation.label(!i.style.glyphs), i.style.state(operation.Status), dash(operation.CreatedBy), i.ago(operation.CreatedAt),
 		})
 	}
 	i.table([]string{"id", "kind", "status", "by", "created"}, rows, "no operations")
@@ -175,7 +179,7 @@ func opsInspect(i *invocation) error {
 		return i.printJSON(raw)
 	}
 	operation := response.Operation
-	i.line(i.style.bold(operation.ID) + "  " + operation.label())
+	i.line(i.style.bold(operation.ID) + "  " + operation.label(false))
 	what := ""
 	if operation.Kind != "" {
 		what = operation.What

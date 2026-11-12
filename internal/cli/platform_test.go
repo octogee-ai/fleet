@@ -38,13 +38,14 @@ func lineWith(t *testing.T, text, want string) string {
 }
 
 func TestOpsListNamesAnAuditWithoutAKindByWhatItDid(t *testing.T) {
-	run := fleet(t, "ops", "ls")
+	run := fleetWith(t, fixture, forcedColor, "ops", "ls")
 	expectContains(t, lineWith(t, run.stdout, "audit-1"), "update gateway desired configuration")
 }
 
 func TestOpsListSaysHowLongAgoEachOperationStarted(t *testing.T) {
 	run := fleet(t, "ops", "ls")
-	expectContains(t, lineWith(t, run.stdout, "op-1"), "3m ago")
+	expectContains(t, lineWith(t, fleetWith(t, fixture, forcedColor, "ops", "ls").stdout, "op-1"), "3m ago")
+	expectContains(t, lineWith(t, run.stdout, "op-1"), "2026-11-10T00:02:00Z")
 }
 
 func TestOpsInspectShowsTheOperationAsFields(t *testing.T) {
@@ -53,7 +54,9 @@ func TestOpsInspectShowsTheOperationAsFields(t *testing.T) {
 		t.Fatalf("expected fields, not JSON:\n%s", run.stdout)
 	}
 	expectContains(t, lineWith(t, run.stdout, "error"), "migration failed at quiesce-source")
-	expectContains(t, lineWith(t, run.stdout, "created"), "2026-11-10 00:02:00 UTC")
+	expectContains(t, lineWith(t, run.stdout, "created"), "2026-11-10T00:02:00Z")
+	terminal := fleetWith(t, fixture, forcedColor, "ops", "inspect", "op-1")
+	expectContains(t, ansiPattern.ReplaceAllString(lineWith(t, terminal.stdout, "created"), ""), "2026-11-10 00:02:00 UTC (3m ago)")
 	expectContains(t, lineWith(t, run.stdout, "reserve-target"), "completed")
 }
 
@@ -77,7 +80,7 @@ func TestBuildsListIsATable(t *testing.T) {
 	run := fleet(t, "builds", "ls")
 	expectContains(t, run.stdout, "TAG")
 	row := lineWith(t, run.stdout, "v42")
-	expectContains(t, row, "2h ago")
+	expectContains(t, row, "2026-11-09T22:05:00Z")
 	expectContains(t, row, "sha256:0123456789ab")
 	if strings.Contains(row, "0123456789abcdef0123") {
 		t.Fatalf("expected a short digest:\n%s", row)

@@ -34,7 +34,7 @@ func TestEscapedCellsKeepTheTableAligned(t *testing.T) {
 	run := fleetWith(t, withEmail("grace", "g"+clearScreen+"@example.test"), runOptions{}, "gateway", "inspect", "iso-grace")
 	header := lineWith(t, run.stdout, "EMAIL")
 	row := lineWith(t, run.stdout, `g\x1b[2J@example.test`)
-	if strings.Index(header, "ACTIVE") != strings.Index(row, "1h ago") {
+	if strings.Index(header, "ACTIVE") != strings.Index(row, "2026-11-09T23:05:00Z") {
 		t.Fatalf("columns moved:\n%s\n%s", header, row)
 	}
 }

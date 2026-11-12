@@ -89,8 +89,9 @@ type vmState struct {
 	UpdatedAt         instant `json:"updatedAt"`
 }
 
-// state is the VM's status in lower case, with why it stopped if it did.
-func (v *vmState) state() string {
+// state is the VM's status in lower case, with why it stopped if it did. A
+// compact state has no spaces, for piped tables.
+func (v *vmState) state(compact bool) string {
 	if v == nil {
 		return "none"
 	}
@@ -98,7 +99,11 @@ func (v *vmState) state() string {
 	if status == "" {
 		status = "unknown"
 	}
-	if v.StopReason != "" && status != "running" {
+	switch {
+	case v.StopReason == "" || status == "running":
+	case compact:
+		status += "(" + v.StopReason + ")"
+	default:
 		status += " (" + v.StopReason + ")"
 	}
 	return status
@@ -191,7 +196,7 @@ func (r vmReads) cell(style palette, index int) string {
 		return style.dim("unknown")
 	}
 	vm := r.details[index].Control.VM
-	return style.toned(vm.tone(), vm.state())
+	return style.toned(vm.tone(), vm.state(!style.glyphs))
 }
 
 // failed is the error a command returns once it has printed what it read.

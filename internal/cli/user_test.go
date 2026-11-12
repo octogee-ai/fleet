@@ -228,7 +228,7 @@ func TestUserInspectShowsTheUsersIsolatedGatewayAndItsVM(t *testing.T) {
 	}
 	row := lineWith(t, run.stdout, "isolated gateway")
 	expectContains(t, row, "iso-grace")
-	expectContains(t, row, "suspended (idle)")
+	expectContains(t, row, "suspended(idle)")
 }
 
 func TestUserInspectOfAUserWithoutAnIsolatedGatewayReadsNoDetails(t *testing.T) {
@@ -314,7 +314,7 @@ func TestUserBrokerIsReadOnly(t *testing.T) {
 func TestUserBrokerListsUsageWindowsAsATable(t *testing.T) {
 	run := fleet(t, "user", "broker", "ada")
 	expectContains(t, run.stdout, "REQUESTS")
-	row := lineWith(t, run.stdout, "1h ago")
+	row := lineWith(t, run.stdout, "2026-11-09T23:00:00Z")
 	for _, want := range []string{"3", "12000", "$0.42"} {
 		expectContains(t, row, want)
 	}
