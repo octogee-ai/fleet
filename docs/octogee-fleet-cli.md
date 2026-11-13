@@ -86,6 +86,18 @@ A shared gateway stays on the build it was added on, and the Admin API refuses `
 | `user delete <user> [--erase-now]` | Schedules the user's deletion; `--erase-now` erases at once | `POST /users/<id>/delete` |
 | `user broker <user>` | Shows the user's model broker usage by window; `--format=json` adds daily usage by model, the token breakdown and recent calls | `GET /users/<id>/broker-diagnostics` |
 
+## Sizing profile commands
+
+A sizing profile names the size of gateway a user can be given. `user migrate --to-isolated` takes the name of an isolated one, which needs a VM machine type, provisioning model and boot disk. [The Admin API contract](admin-api.md#sizing-profiles) describes a profile's fields.
+
+| Command | What it does | Request |
+| --- | --- | --- |
+| `sizing ls` | Lists sizing profiles with their isolation, tier and VM settings | `GET /sizing-profiles` |
+| `sizing inspect <name>` | Shows one sizing profile. `sizing show` is the same command. | `GET /sizing-profiles/<name>` |
+| `sizing set <name> --file=<path>` | Creates or replaces a sizing profile from a JSON file holding the profile, as `sizing inspect <name> --format=json` prints it under `profile`. A file that matches the stored profile changes nothing. The Admin API refuses an isolated profile whose VM settings differ from another isolated profile at the same tier. | `GET /sizing-profiles`, then `PUT /sizing-profiles/<name>` |
+
+A move to an isolated gateway also needs the isolated gateway image, the `vm-bridge` image and the VM image. The platform's releases do not publish those yet, so on an install built only from its published images, a sizing profile does not by itself make that move work.
+
 ## Platform commands
 
 | Command | What it does | Request |
@@ -114,6 +126,8 @@ With `--format=json`, each read prints one JSON document on stdout:
 | `user ls` | `{"users": [user]}`, the Admin API's placement records, filtered by `--gateway` |
 | `user inspect` | `{"user": user, "isolatedGateways": [{"gateway": summary, "vm": vm}], "errors": [{"gatewayId", "error"}]}`. `vm` is the details' `control.vm`, or `null` when it could not be read, and `errors` says why. |
 | `user broker` | The Admin API's broker diagnostics |
+| `sizing ls` | The Admin API's response: `{"sizingProfiles": [{"name", "profile"}]}` |
+| `sizing inspect` | The Admin API's response: `{"name", "profile"}` |
 | `ops ls` | The Admin API's response: `{"operations", "generatedAt"}` |
 | `ops inspect` | The Admin API's response: `{"operation": operation}` |
 | `builds ls` | The Admin API's response: `{"service", "builds": [{"tag", "pushedAt", "digest"}], "generatedAt"}` |

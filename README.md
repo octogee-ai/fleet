@@ -112,6 +112,10 @@ octogee-fleet --env=staging user migrate ada --to=shared-b --apply
 ```
 
 ```bash
+octogee-fleet --env=staging sizing set standard --file=standard.json --apply
+```
+
+```bash
 octogee-fleet --env=staging user migrate ada --to-isolated=standard
 ```
 

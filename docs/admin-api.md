@@ -205,3 +205,68 @@ Takes `{"sizingProfile": "<name>"}`. Creates the user's isolated gateway at that
 ```
 
 A dry run answers with one plan whose `mutation` carries `uid`, `sizingProfile` and `fromGatewayId`. Refusals carry `{"code": "<code>", "error": "<message>"}`, on a dry run as well as when applied. `400` means the sizing profile is unknown. `404` with `user-not-found` means the user does not exist. `409` with `user-has-isolated-gateway` means the user already has one, named by `gatewayId`; `isolated-gateway-retiring`, `user-not-provisioned` and `user-not-active` are also `409`.
+
+## Sizing profiles
+
+A sizing profile names the size of gateway a user can be given. `POST /users/<id>/isolated-gateway` takes the name of an isolated one. A profile is shared:
+
+```json
+{ "isolation": "shared" }
+```
+
+or isolated, with its VM settings under `computer`:
+
+```json
+{
+  "isolation": "isolated",
+  "sizingTier": "s",
+  "computer": {
+    "runtime": "gce-vm",
+    "desktop": "x11",
+    "machineType": "e2-medium",
+    "provisioningModel": "SPOT",
+    "bootDisk": { "sizeGb": 80, "type": "pd-balanced" },
+    "homeSizeGiB": 10
+  },
+  "fallbackStorageGb": null
+}
+```
+
+`sizingTier` is `xs`, `s`, `m` or `l`. `desktop` is `x11` or `omarchy`, `provisioningModel` is `SPOT` or `STANDARD`, and `bootDisk.type` is `pd-balanced` or `pd-ssd`. `bootDisk.sizeGb`, `homeSizeGiB` and `fallbackStorageGb` are positive whole numbers; `fallbackStorageGb` may be `null`. A profile carries no other fields.
+
+Isolated profiles at the same `sizingTier` must have the same VM settings, because the platform sizes an isolated gateway's VM by its tier.
+
+A move to an isolated gateway also needs the isolated gateway image, the `vm-bridge` image and the VM image. The platform's releases do not publish those yet, so on an install built only from its published images, a sizing profile does not by itself make that move work.
+
+### `GET /sizing-profiles`
+
+```json
+{ "sizingProfiles": [{ "name": "default", "profile": { "isolation": "shared" } }] }
+```
+
+Each `profile` is as stored, in the shape above. Profiles are sorted by name. A platform that has never stored one returns an empty list.
+
+### `GET /sizing-profiles/<name>`
+
+```json
+{ "name": "default", "profile": { "isolation": "shared" } }
+```
+
+`404` with `sizing-profile-unknown` means no profile has that name.
+
+### `PUT /sizing-profiles/<name>`
+
+Takes the profile as the body and creates or replaces it, leaving the other profiles as they are. The write is journaled as an audit. Returns `200`:
+
+```json
+{ "name": "standard", "profile": "<the profile as stored>", "operationId": "<id>" }
+```
+
+A dry run answers with one plan whose `kind` is `set-sizing-profile`, whose `preActionStatus` is `{"profile": <the stored profile, or null>}`, and whose `mutation` carries `sizingProfile` and `profile`. Refusals carry `{"code": "<code>", "error": "<message>"}`, on a dry run as well as when applied, and write nothing:
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| `400` | `sizing-profile-name-invalid` | The name is not 1 to 63 lower-case letters, digits or hyphens starting and ending with a letter or digit. |
+| `400` | `sizing-profile-invalid` | The body is not a profile of the shape above. |
+| `400` | `sizing-profile-no-vm` | An isolated profile has no `machineType`, `provisioningModel` or `bootDisk`. |
+| `409` | `sizing-tier-conflict` | Another isolated profile at the same tier has different VM settings. The response names the tier in `sizingTier` and the other profiles in `sizingProfiles`. |

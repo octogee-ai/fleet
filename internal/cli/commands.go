@@ -45,6 +45,7 @@ func words(text string) []string { return strings.Fields(text) }
 func allCommands() []*command {
 	commands := append([]*command{}, gatewayCommands...)
 	commands = append(commands, userCommands...)
+	commands = append(commands, sizingCommands...)
 	commands = append(commands, platformCommands...)
 	commands = append(commands, authCommands...)
 	return append(commands, completionCommand)
