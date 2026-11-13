@@ -44,5 +44,8 @@ Monitor failed scheduled scans as well as alert notifications.
 CodeQL scans supported code and GitHub Actions; secret scanning and push
 protection detect credential exposure. Dependabot checks dependencies and pinned
 Actions weekly, while pull request dependency review rejects newly introduced
-moderate, high, or critical known vulnerabilities. These checks complement review;
+moderate, high, or critical known vulnerabilities. The Checks workflow also
+runs `govulncheck` for reachable Go vulnerabilities. GitHub requires full-SHA
+action pins, and zizmor checks workflow changes. OpenSSF Scorecard runs weekly
+on the default branch. These checks complement review;
 a passing scan is not a guarantee that the code is secure.
