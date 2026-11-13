@@ -9,15 +9,30 @@
 
 ## Install
 
+Each [release](https://github.com/octogee-ai/octogee-fleet/releases) has an
+archive for macOS (`darwin`), Linux and Windows, on `amd64` and `arm64`. The
+archives are named `octogee-fleet_<tag>_<os>_<arch>.tar.gz`, or `.zip` for
+Windows, and hold the `octogee-fleet` binary (`octogee-fleet.exe` on Windows)
+with `LICENSE` and this README. The release also has `checksums.txt`.
+
+For example, on a Mac with Apple silicon, using the [GitHub CLI](https://cli.github.com):
+
+```bash
+gh release download --repo octogee-ai/octogee-fleet --pattern '*_darwin_arm64.tar.gz'
+```
+
+[Verify the archive](#verify-release-provenance), extract it, and move
+`octogee-fleet` to a directory on your `PATH`. macOS quarantines a binary
+downloaded with a browser and refuses to run it; `gh` and `curl` do not mark
+downloads that way.
+
+With Go installed, you can build a release from source instead:
+
 ```bash
 go install github.com/octogee-ai/octogee-fleet@latest
 ```
 
-The [release workflow](https://github.com/octogee-ai/octogee-fleet/actions/workflows/release.yml)
-publishes checksummed archives for macOS and Linux on amd64 and arm64 when a
-version tag is pushed. See [Releases](https://github.com/octogee-ai/octogee-fleet/releases)
-for available downloads and [verify the archive](#verify-release-provenance)
-before installing it.
+`octogee-fleet --version` prints the release tag, such as `v0.1.0`.
 
 This tool was called `fleet` before. If you have a configuration at `~/.config/fleet/config.json`, move it to `~/.config/octogee-fleet/config.json`, and set `OCTOGEE_FLEET_CONFIG` where you set `FLEET_CONFIG`. Sign in again afterwards.
 
@@ -137,10 +152,11 @@ The release workflow attests each archive. Before extracting a downloaded
 archive, verify it with the GitHub CLI, substituting its actual filename:
 
 ```bash
-gh attestation verify ./octogee-fleet_VERSION_OS_ARCH.tar.gz --repo octogee-ai/octogee-fleet
+gh attestation verify ./octogee-fleet_v0.1.0_darwin_arm64.tar.gz --repo octogee-ai/octogee-fleet
 ```
 
-The release also includes `checksums.txt`.
+To compare against `checksums.txt` instead, download it beside the archive and run
+`sha256sum --ignore-missing -c checksums.txt`.
 
 ## Contributing and security
 
