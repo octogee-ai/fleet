@@ -271,15 +271,22 @@ func TestAnAppliedMutationPrintsItsOperationIDAndHowToFollowIt(t *testing.T) {
 	expectContains(t, run.stdout, "octogee-fleet --env=local ops inspect op-recorded")
 }
 
+func TestAnAppliedMutationWithoutAnOperationIDPointsAtTheJournal(t *testing.T) {
+	run := fleetWith(t, fixture, runOptions{omitOperationIDs: true}, "gateway", "park", "shared-a", "--apply")
+	expectContains(t, run.stdout, "applied: shared-a set to paused")
+	expectContains(t, run.stdout, "returned no operation id")
+	expectContains(t, run.stdout, "octogee-fleet --env=local ops ls")
+}
+
 func TestEveryAppliedChangeSaysWhatChangedInsteadOfPrintingTheResponse(t *testing.T) {
 	cases := []struct {
 		argv []string
 		want []string
 	}{
-		{[]string{"gateway", "park", "shared-a"}, []string{"applied: shared-a set to paused", "returned no operation id", "octogee-fleet --env=local ops ls"}},
-		{[]string{"gateway", "resume", "shared-parked"}, []string{"applied: shared-parked set to running"}},
-		{[]string{"user", "assign", "alan", "--to=shared-b"}, []string{"applied: alan assigned to shared-b", "returned no operation id"}},
-		{[]string{"user", "unassign", "ada"}, []string{"applied: ada unassigned from shared-a", "returned no operation id"}},
+		{[]string{"gateway", "park", "shared-a"}, []string{"applied: shared-a set to paused", "operation audit-patch", "octogee-fleet --env=local ops inspect audit-patch"}},
+		{[]string{"gateway", "resume", "shared-parked"}, []string{"applied: shared-parked set to running", "operation audit-patch"}},
+		{[]string{"user", "assign", "alan", "--to=shared-b"}, []string{"applied: alan assigned to shared-b", "operation audit-assign", "ops inspect audit-assign"}},
+		{[]string{"user", "unassign", "ada"}, []string{"applied: ada unassigned from shared-a", "operation audit-unassign", "ops inspect audit-unassign"}},
 		{[]string{"user", "delete", "alan"}, []string{"applied: alan scheduled for deletion", "suspension operation op-suspend", "erasure operation op-erase", "ops inspect op-erase"}},
 	}
 	for _, testCase := range cases {

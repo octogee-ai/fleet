@@ -12,7 +12,7 @@ A failed request returns a non-2xx status with `{"error": "<message>"}`, and a m
 
 ## Mutations
 
-A journaled mutation returns `{"operationId": "<id>"}`, and a mutation that starts more than one operation names each in a field ending in `OperationId`, such as `erasureOperationId`. `PATCH /gateways/<gateway>`, `POST /users/<id>/assign` and `POST /users/<id>/unassign` are journaled as audits but return no id.
+A journaled mutation returns `{"operationId": "<id>"}`, and a mutation that starts more than one operation names each in a field ending in `OperationId`, such as `erasureOperationId`. A change journaled as an audit, such as `PATCH /gateways/<gateway>`, `POST /users/<id>/assign` or `POST /users/<id>/unassign`, returns the audit's id as `operationId`.
 
 ## Dry runs
 
@@ -36,7 +36,7 @@ A dry run writes nothing and leaves its `Idempotency-Key` unused, so `octogee-fl
 
 Every response carries the header `Admin-Api-Capabilities: dry-run`. An Admin API without it ignores `dryRun` and applies the request, so `octogee-fleet` sends a dry run only after it has seen the header. A `2xx` answer without `"dryRun": true` is reported as a change that may have been applied.
 
-A dry run does not predict checks made while a change is applied, an idempotency key that was already used, or failures later in the operation.
+A dry run of `PATCH /gateways/<gateway>` also makes the checks the change makes while it is applied: a retirement claim, a user migration in flight, and an unresolved runtime outcome. Other dry runs do not predict checks made while a change is applied. No dry run predicts an idempotency key that was already used, or failures later in the operation.
 
 ## `GET /gateways`
 
@@ -124,25 +124,29 @@ A shared gateway added this way belongs to the operator: no automation replaces,
 { "releases": [{ "release": 3, "imageTag": "v42", "createdAt": "2026-11-10T00:00:00Z", "createdBy": "operator", "live": true, "desired": true }] }
 ```
 
+`live` marks the release the gateway runs. For a paused gateway it marks the release the gateway starts with when it resumes, which it may not have run yet.
+
 ## `GET /operations`
 
 ```json
 {
   "operations": [
-    { "id": "op-1", "kind": "deploy", "status": "running", "createdBy": "operator", "createdAt": 1794268800000 },
-    { "id": "audit-1", "recordType": "audit", "what": "update gateway desired configuration", "status": "completed", "createdBy": "operator", "createdAt": 1794268800000 }
+    { "id": "op-1", "kind": "deploy", "status": "running", "createdBy": "uid-ops", "actorEmail": "ops@example.com", "createdAt": 1794268800000 },
+    { "id": "audit-1", "recordType": "audit", "what": "update gateway desired configuration", "status": "completed", "createdBy": "ops@example.com", "actorEmail": "ops@example.com", "createdAt": 1794268800000 }
   ]
 }
 ```
 
 An audit records an operator change. Its `kind` is the mutation's kind and may be missing; `what` always says what it did.
 
+`createdBy` is the identity that made the change: a platform account id, an operator's email, or the name of a fleet controller process. `actorEmail` is `createdBy` when that is an email, and otherwise the email of the account it names. It is `null` for records the fleet controller wrote and for accounts the platform does not know, such as an erased user.
+
 ## `GET /operations/<operation>`
 
 ```json
 {
   "operation": {
-    "id": "op-1", "kind": "migrate", "status": "failed", "createdBy": "operator", "createdAt": 1794268800000,
+    "id": "op-1", "kind": "migrate", "status": "failed", "createdBy": "uid-ops", "actorEmail": "ops@example.com", "createdAt": 1794268800000,
     "error": "<message>",
     "steps": [{ "name": "quiesce-source", "status": "failed", "error": "<message>" }]
   }
