@@ -112,6 +112,7 @@ type runOptions struct {
 	redirectTo       string
 	defaultHTTP      bool
 	omitPasswords    bool
+	omitOperationIDs bool
 	alterBinding     func(*oidc.Binding)
 	withoutDryRuns   bool
 	refuseDryRunWith int
@@ -300,6 +301,13 @@ func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
 	}
 	if !strings.HasSuffix(r.URL.Path, "/one-time-passwords") {
 		status, body := appliedAnswer(r)
+		if s.options.omitOperationIDs {
+			for name := range body {
+				if name == "operationId" || strings.HasSuffix(name, "OperationId") {
+					delete(body, name)
+				}
+			}
+		}
 		writeJSON(w, status, body)
 		return
 	}
@@ -314,18 +322,17 @@ func (s *adminStub) serveMutation(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// appliedAnswer is what the Admin API returns for an applied mutation. Not
-// every route returns an operation id.
+// appliedAnswer is what the Admin API returns for an applied mutation.
 func appliedAnswer(r *http.Request) (int, map[string]any) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/")
 	segments := strings.Split(path, "/")
 	switch {
 	case r.Method == http.MethodPatch:
-		return http.StatusAccepted, map[string]any{"gatewayId": segments[1], "updated": []string{"desiredStatus"}}
+		return http.StatusAccepted, map[string]any{"gatewayId": segments[1], "updated": []string{"desiredStatus"}, "operationId": "audit-patch"}
 	case strings.HasSuffix(path, "/assign"):
-		return http.StatusAccepted, map[string]any{"uid": segments[1], "gatewayId": "shared-b", "gatewayProfile": "shared"}
+		return http.StatusAccepted, map[string]any{"uid": segments[1], "gatewayId": "shared-b", "gatewayProfile": "shared", "operationId": "audit-assign"}
 	case strings.HasSuffix(path, "/unassign"):
-		return http.StatusOK, map[string]any{"unassigned": true, "uid": segments[1], "from": "shared-a"}
+		return http.StatusOK, map[string]any{"unassigned": true, "uid": segments[1], "from": "shared-a", "operationId": "audit-unassign"}
 	case strings.HasSuffix(path, "/delete"):
 		return http.StatusAccepted, map[string]any{
 			"status": "deletion_scheduled", "deletionId": "deletion-1",
