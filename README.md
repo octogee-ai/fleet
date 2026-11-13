@@ -1,5 +1,8 @@
 # octogee-fleet
 
+[![Checks](https://github.com/octogee-ai/octogee-fleet/actions/workflows/checks.yml/badge.svg?branch=main&event=push)](https://github.com/octogee-ai/octogee-fleet/actions/workflows/checks.yml)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 `octogee-fleet` is the operator command line for a fleet of [OpenClaw](https://github.com/openclaw/openclaw) gateways. With it, an operator can add, deploy, restart, park and retire gateways, place users on gateways and move them between gateways, and follow every change in the operations journal.
 
 `octogee-fleet` is a client of the platform's Admin API and nothing else. It holds no database or cloud credentials, and it has no dependencies outside the Go standard library.
@@ -10,7 +13,11 @@
 go install github.com/octogee-ai/octogee-fleet@latest
 ```
 
-Or download the archive for your system from [Releases](https://github.com/octogee-ai/octogee-fleet/releases), check it against `checksums.txt`, and put the `octogee-fleet` binary inside it on your `PATH`. Releases cover macOS and Linux on amd64 and arm64.
+The [release workflow](https://github.com/octogee-ai/octogee-fleet/actions/workflows/release.yml)
+publishes checksummed archives for macOS and Linux on amd64 and arm64 when a
+version tag is pushed. See [Releases](https://github.com/octogee-ai/octogee-fleet/releases)
+for available downloads and [verify the archive](#verify-release-provenance)
+before installing it.
 
 This tool was called `fleet` before. If you have a configuration at `~/.config/fleet/config.json`, move it to `~/.config/octogee-fleet/config.json`, and set `OCTOGEE_FLEET_CONFIG` where you set `FLEET_CONFIG`. Sign in again afterwards.
 
@@ -126,14 +133,18 @@ The tests run the real command line against a recording Admin API and OIDC issue
 
 ## Verify release provenance
 
-Releases built after the attestation workflow lands include GitHub build
-provenance for each archive. Before extracting a downloaded archive, verify it
-with the GitHub CLI, substituting its actual filename:
+The release workflow attests each archive. Before extracting a downloaded
+archive, verify it with the GitHub CLI, substituting its actual filename:
 
 ```bash
 gh attestation verify ./octogee-fleet_VERSION_OS_ARCH.tar.gz --repo octogee-ai/octogee-fleet
 ```
 
-The release also includes `checksums.txt`. Earlier releases may not have
-attestations. See [the security policy](SECURITY.md) for reporting vulnerabilities
-and supported versions.
+The release also includes `checksums.txt`.
+
+## Contributing and security
+
+Use [Contributing](CONTRIBUTING.md) to run the checks locally and sign off commits.
+[Checks](https://github.com/octogee-ai/octogee-fleet/actions/workflows/checks.yml)
+runs Go tests, static checks, dependency review, and `govulncheck`. See the
+[security policy](SECURITY.md) for private reporting and supported versions.
