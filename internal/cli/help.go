@@ -11,6 +11,7 @@ const exampleEnvironment = "staging"
 var groupTitles = map[string]string{
 	"gateway":    "Gateways",
 	"user":       "Users",
+	"sizing":     "Sizing profiles",
 	"ops":        "Operations journal",
 	"builds":     "Builds and releases",
 	"release":    "Builds and releases",

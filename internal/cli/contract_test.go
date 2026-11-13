@@ -20,6 +20,7 @@ var mutatingCommands = [][]string{
 	{"user", "migrate", "ada", "--to=shared-b"},
 	{"user", "add", "lin", "--email=lin@example.com"},
 	{"user", "issue-passwords", "ada"},
+	{"sizing", "set", "team", "--file=testdata/shared-sizing-profile.json"},
 }
 
 func TestMutatingCommandsAreDryRunWithoutApply(t *testing.T) {

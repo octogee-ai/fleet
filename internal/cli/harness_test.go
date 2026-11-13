@@ -333,6 +333,8 @@ func appliedAnswer(r *http.Request) (int, map[string]any) {
 		}
 	case path == "users":
 		return http.StatusCreated, map[string]any{"userId": "u-new", "operationId": "op-recorded"}
+	case r.Method == http.MethodPut && segments[0] == "sizing-profiles":
+		return http.StatusOK, map[string]any{"name": segments[1], "operationId": "op-sizing"}
 	}
 	return http.StatusAccepted, map[string]any{"operationId": "op-recorded"}
 }
@@ -400,6 +402,10 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 		if s.options.logsTruncated {
 			fmt.Fprintln(w, `{"timestamp":"2026-11-10T00:00:01Z","severity":"WARNING","service":"fleet","instance":"admin-api","message":"Older entries in this window were not read. Shorten since or add a filter.","details":{"truncated":true}}`)
 		}
+	case path == "sizing-profiles":
+		writeJSON(w, http.StatusOK, map[string]any{"sizingProfiles": fixtureSizingProfiles()})
+	case len(segments) == 2 && segments[0] == "sizing-profiles":
+		s.serveSizingProfile(w, segments[1])
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "details":
 		s.serveDetails(w, r, segments[1])
 	case len(segments) == 3 && segments[0] == "gateways" && segments[2] == "releases":
@@ -411,6 +417,35 @@ func (s *adminStub) serveRead(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no route: " + path})
 	}
+}
+
+func standardSizingProfile() map[string]any {
+	return map[string]any{
+		"isolation":  "isolated",
+		"sizingTier": "s",
+		"computer": map[string]any{
+			"runtime": "gce-vm", "desktop": "x11", "machineType": "e2-medium", "provisioningModel": "SPOT",
+			"bootDisk": map[string]any{"sizeGb": 80, "type": "pd-balanced"}, "homeSizeGiB": 10,
+		},
+		"fallbackStorageGb": nil,
+	}
+}
+
+func fixtureSizingProfiles() []map[string]any {
+	return []map[string]any{
+		{"name": "default", "profile": map[string]any{"isolation": "shared"}},
+		{"name": "standard", "profile": standardSizingProfile()},
+	}
+}
+
+func (s *adminStub) serveSizingProfile(w http.ResponseWriter, name string) {
+	for _, entry := range fixtureSizingProfiles() {
+		if entry["name"] == name {
+			writeJSON(w, http.StatusOK, entry)
+			return
+		}
+	}
+	writeJSON(w, http.StatusNotFound, map[string]any{"code": "sizing-profile-unknown", "error": "unknown sizing profile " + name})
 }
 
 func (s *adminStub) serveDetails(w http.ResponseWriter, r *http.Request, id string) {
