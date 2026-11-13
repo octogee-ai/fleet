@@ -4,12 +4,23 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"time"
 
 	"github.com/octogee-ai/octogee-fleet/internal/cli"
 )
 
-var version = "dev"
+var version string
+
+func versionOf(stamped string, readBuildInfo func() (*debug.BuildInfo, bool)) string {
+	if stamped != "" {
+		return stamped
+	}
+	if info, ok := readBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
 
 func sleep(ctx context.Context, duration time.Duration) error {
 	timer := time.NewTimer(duration)
@@ -30,7 +41,7 @@ func run() int {
 		Stderr:  os.Stderr,
 		Getenv:  os.Getenv,
 		Sleep:   sleep,
-		Version: version,
+		Version: versionOf(version, debug.ReadBuildInfo),
 	})
 }
 
