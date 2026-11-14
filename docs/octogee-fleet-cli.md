@@ -96,7 +96,7 @@ A sizing profile names the size of gateway a user can be given. `user migrate --
 | `sizing inspect <name>` | Shows one sizing profile. `sizing show` is the same command. | `GET /sizing-profiles/<name>` |
 | `sizing set <name> --file=<path>` | Creates or replaces a sizing profile from a JSON file holding the profile, as `sizing inspect <name> --format=json` prints it under `profile`. A file that matches the stored profile changes nothing. The Admin API refuses an isolated profile whose VM settings differ from another isolated profile at the same tier. | `GET /sizing-profiles`, then `PUT /sizing-profiles/<name>` |
 
-A move to an isolated gateway also needs the isolated gateway image, the `vm-bridge` image and the VM image. The platform's releases do not publish those yet, so on an install built only from its published images, a sizing profile does not by itself make that move work.
+A move to an isolated gateway also needs the isolated gateway image, the `vm-bridge` image and the VM image. The platform's releases publish the first two but not the VM image yet, so on an install built only from its published images, a sizing profile does not by itself make that move work.
 
 ## Platform commands
 

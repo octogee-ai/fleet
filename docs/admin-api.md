@@ -58,7 +58,7 @@ A dry run of `PATCH /gateways/<gateway>` also makes the checks the change makes 
 }
 ```
 
-`gatewayClass` is `shared` or `isolated`. An isolated gateway names its `ownerId`. A summary also carries `lastError` (`{"slug", "message", "at"}`) and `podDiagnostics` when the platform has them:
+`gatewayClass` is `shared` or `isolated`. An isolated gateway names its `ownerId`. `imageTag` and `openclawVersion` are what the gateway last reported, so a paused gateway shows the image it last ran, not the release it starts with when it resumes; `GET /gateways/<gateway>/releases` names that one. A summary also carries `lastError` (`{"slug", "message", "at"}`) and `podDiagnostics` when the platform has them:
 
 ```json
 {
